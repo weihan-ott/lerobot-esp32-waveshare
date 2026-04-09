@@ -26,10 +26,14 @@ bool OLEDDisplay::begin() {
         return false;
     }
     
+    // 设置高对比度，提高清晰度
+    mDisplay->ssd1306_command(SSD1306_SETCONTRAST);
+    mDisplay->ssd1306_command(0xCF);  // 高对比度值 (0x00-0xFF)
+    
     // 清空屏幕
     mDisplay->clearDisplay();
     mDisplay->setTextSize(1);
-    mDisplay->setTextColor(SSD1306_WHITE);
+    mDisplay->setTextColor(SSD1306_WHITE, SSD1306_BLACK);  // 白字黑底
     mDisplay->display();
     
     initialized = true;
@@ -40,6 +44,7 @@ bool OLEDDisplay::begin() {
 void OLEDDisplay::clear() {
     if (mDisplay) {
         mDisplay->clearDisplay();
+        mDisplay->setTextColor(SSD1306_WHITE);
     }
 }
 
@@ -53,20 +58,20 @@ void OLEDDisplay::showStartup() {
     if (!mDisplay) return;
     
     clear();
-    
-    // 使用默认字体，字号1（细体清晰）
     mDisplay->setFont(nullptr);
-    mDisplay->setTextSize(1);
-    
-    mDisplay->setCursor(30, 16);
+    mDisplay->setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+
+    mDisplay->setTextSize(2);
+    mDisplay->setCursor(18, 12);
     mDisplay->print("LeRobot");
-    
-    mDisplay->setCursor(20, 32);
-    mDisplay->print("Waveshare");
-    
-    mDisplay->setCursor(25, 48);
+
+    mDisplay->setTextSize(1);
+    mDisplay->setCursor(28, 36);
+    mDisplay->print("ESP32 Waveshare");
+
+    mDisplay->setCursor(36, 52);
     mDisplay->print("Starting...");
-    
+
     display();
 }
 
@@ -75,8 +80,9 @@ void OLEDDisplay::showMessage(const char* message) {
     
     clear();
     mDisplay->setFont(nullptr);
+    mDisplay->setTextColor(SSD1306_WHITE, SSD1306_BLACK);
     mDisplay->setTextSize(1);
-    mDisplay->setCursor(0, 32);
+    mDisplay->setCursor(0, 28);
     mDisplay->print(message);
     display();
 }
@@ -87,14 +93,13 @@ void OLEDDisplay::showError(const char* error) {
     clear();
     
     mDisplay->setFont(nullptr);
-    mDisplay->setTextSize(1);
-    
-    // 错误标题
-    mDisplay->setCursor(45, 16);
+    mDisplay->setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    mDisplay->setTextSize(2);
+    mDisplay->setCursor(18, 8);
     mDisplay->print("ERROR");
-    
-    // 错误信息
-    mDisplay->setCursor(0, 45);
+
+    mDisplay->setTextSize(1);
+    mDisplay->setCursor(0, 40);
     mDisplay->print(error);
     
     display();
@@ -106,14 +111,18 @@ void OLEDDisplay::showMode(DeviceMode mode) {
     clear();
     
     mDisplay->setFont(nullptr);
+    mDisplay->setTextColor(SSD1306_WHITE, SSD1306_BLACK);
     mDisplay->setTextSize(1);
-    mDisplay->setCursor(45, 16);
+    mDisplay->setCursor(40, 8);
     mDisplay->print("MODE");
-    
-    mDisplay->drawLine(20, 20, 108, 20, SSD1306_WHITE);
-    
-    // 模式名称
-    mDisplay->setCursor(30, 45);
+
+    mDisplay->drawLine(18, 18, 110, 18, SSD1306_WHITE);
+
+    mDisplay->setTextSize(2);
+    int nameLen = strlen(getModeName(mode));
+    int textX = (OLED_WIDTH - nameLen * 12) / 2;
+    if (textX < 0) textX = 0;
+    mDisplay->setCursor(textX, 32);
     mDisplay->print(getModeName(mode));
     
     display();
@@ -124,29 +133,43 @@ void OLEDDisplay::showStatus(const char* mac, DeviceMode mode, int servoCount, c
     
     clear();
     
-    // 使用默认字体，细体清晰
     mDisplay->setFont(nullptr);
+    mDisplay->setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    
+    // 第一行：模式名称（字号2，清晰大字）
+    mDisplay->setTextSize(2);
+    const char* modeName = getModeName(mode);
+    int nameLen = strlen(modeName);
+    int textX = (OLED_WIDTH - nameLen * 12) / 2;  // 居中
+    if (textX < 0) textX = 0;
+    mDisplay->setCursor(textX, 0);
+    mDisplay->print(modeName);
+
+    // 分隔线
+    mDisplay->drawLine(0, 20, OLED_WIDTH, 20, SSD1306_WHITE);
+
+    // MAC 只显示后 6 个字符
+    char macShort[10] = {0};
+    int macLen = strlen(mac);
+    if (macLen > 6) {
+        strcpy(macShort, mac + macLen - 6);
+    } else {
+        strcpy(macShort, mac);
+    }
+
+    // 第二行：MAC 和 Servos
     mDisplay->setTextSize(1);
-    
-    // 第一行：Mode:Leader
-    mDisplay->setCursor(0, 10);
-    mDisplay->print("Mode:");
-    mDisplay->print(getModeName(mode));
-    
-    // 第二行：MAC地址（完整显示）
-    mDisplay->setCursor(0, 24);
+    mDisplay->setCursor(0, 28);
     mDisplay->print("MAC:");
-    mDisplay->print(mac);
+    mDisplay->print(macShort);
     
-    // 第三行：Servos:X/10
-    mDisplay->setCursor(0, 38);
-    mDisplay->print("Servos:");
+    mDisplay->setCursor(70, 28);
+    mDisplay->print("S:");
     mDisplay->print(servoCount);
-    mDisplay->print("/10");
-    
-    // 第四行：Status:XXX
-    mDisplay->setCursor(0, 52);
-    mDisplay->print("Status:");
+
+    // 第三行：状态
+    mDisplay->setCursor(0, 44);
+    mDisplay->print("Stat:");
     mDisplay->print(status);
     
     display();
@@ -157,28 +180,20 @@ void OLEDDisplay::showSearching(int currentId, int maxId, int detected) {
     
     clear();
     
-    // 使用默认字体，细体清晰
     mDisplay->setFont(nullptr);
+    mDisplay->setTextColor(SSD1306_WHITE, SSD1306_BLACK);
     mDisplay->setTextSize(1);
     
-    // 第一行：Search STS/SCS...
-    mDisplay->setCursor(0, 10);
+    mDisplay->setCursor(0, 0);
     mDisplay->print("Search STS/SCS...");
     
-    // 第二行：Max_ID X-Ping:0-X
-    mDisplay->setCursor(0, 24);
+    mDisplay->setCursor(0, 16);
     mDisplay->print("MAX_ID ");
     mDisplay->print(maxId);
-    mDisplay->print("-Ping:0-");
-    mDisplay->print(maxId);
-    
-    // 第三行：Checking ID:X
-    mDisplay->setCursor(0, 38);
-    mDisplay->print("Checking ID:");
+    mDisplay->print("-Ping:");
     mDisplay->print(currentId);
     
-    // 第四行：Detected:X
-    mDisplay->setCursor(0, 52);
+    mDisplay->setCursor(0, 32);
     mDisplay->print("Detected:");
     mDisplay->print(detected);
     
@@ -191,13 +206,13 @@ void OLEDDisplay::showSearchComplete(int detected) {
     clear();
     
     mDisplay->setFont(nullptr);
+    mDisplay->setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    mDisplay->setTextSize(2);
+    mDisplay->setCursor(10, 16);
+    mDisplay->print("Done");
+
     mDisplay->setTextSize(1);
-    
-    // 居中显示完成信息
-    mDisplay->setCursor(20, 25);
-    mDisplay->print("Search Done!");
-    
-    mDisplay->setCursor(25, 45);
+    mDisplay->setCursor(0, 40);
     mDisplay->print("Found ");
     mDisplay->print(detected);
     mDisplay->print(" servos");
@@ -218,8 +233,9 @@ void OLEDDisplay::drawCenteredText(int y, const char* text, int size) {
     if (!mDisplay) return;
     
     mDisplay->setFont(nullptr);
+    mDisplay->setTextSize(size);
     int textWidth = strlen(text) * 6 * size;
-    int x = (128 - textWidth) / 2;
+    int x = (OLED_WIDTH - textWidth) / 2;
     if (x < 0) x = 0;
     
     drawText(x, y, text, size);
@@ -264,8 +280,8 @@ void OLEDDisplay::drawServoBar(int id, int position, int x, int y, int width) {
     if (!mDisplay) return;
     
     mDisplay->setFont(nullptr);
-    // ID 标签
     mDisplay->setTextSize(1);
+    // ID 标签
     mDisplay->setCursor(x, y);
     mDisplay->printf("%d:", id);
     
