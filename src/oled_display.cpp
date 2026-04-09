@@ -54,16 +54,16 @@ void OLEDDisplay::showStartup() {
     
     clear();
     
-    // 标题
+    // 标题（更大字体）
     mDisplay->setTextSize(2);
-    mDisplay->setCursor(10, 10);
+    mDisplay->setCursor(10, 8);
     mDisplay->println("LeRobot");
     
     mDisplay->setTextSize(1);
-    mDisplay->setCursor(20, 35);
+    mDisplay->setCursor(20, 32);
     mDisplay->println("ESP32 Waveshare");
     
-    mDisplay->setCursor(25, 50);
+    mDisplay->setCursor(25, 48);
     mDisplay->println("Initializing...");
     
     display();
@@ -126,48 +126,39 @@ void OLEDDisplay::showStatus(const char* mac, DeviceMode mode, int servoCount, c
     
     clear();
     
-    // 第一行：模式
-    mDisplay->setTextSize(1);
+    // 第一行：模式（大字显示）
+    mDisplay->setTextSize(2);
     mDisplay->setCursor(0, 0);
-    mDisplay->print("Mode:");
     mDisplay->print(getModeName(mode));
     
-    // 状态指示
-    mDisplay->setCursor(90, 0);
+    // 分隔线
+    mDisplay->drawLine(0, 18, 128, 18, SSD1306_WHITE);
+    
+    // 第二行：MAC + 舵机数量（合并显示）
+    mDisplay->setTextSize(1);
+    mDisplay->setCursor(0, 22);
+    // 显示 MAC 前 6 个字符
+    char macShort[7];
+    strncpy(macShort, mac, 6);
+    macShort[6] = '\0';
+    mDisplay->printf("%.6s S:%d/%d", macShort, servoCount, MAX_SERVO_ID);
+    
+    // 第三行：状态
+    mDisplay->setCursor(0, 32);
     mDisplay->print("[");
     mDisplay->print(status);
     mDisplay->print("]");
     
-    // 分隔线
-    mDisplay->drawLine(0, 10, 128, 10, SSD1306_WHITE);
-    
-    // MAC 地址
-    mDisplay->setCursor(0, 14);
-    mDisplay->print("MAC:");
-    // 显示 MAC 前 8 个字符
-    char macShort[9];
-    strncpy(macShort, mac, 8);
-    macShort[8] = '\0';
-    mDisplay->print(macShort);
-    
-    // 舵机数量
-    mDisplay->setCursor(0, 26);
-    mDisplay->print("Servos:");
-    mDisplay->print(servoCount);
-    mDisplay->print("/");
-    mDisplay->print(MAX_SERVO_ID);
-    
-    // 舵机位置条形图 (最多显示 6 个)
-    int y = 40;
-    for (int i = 1; i <= 6 && i <= MAX_SERVO_ID; i++) {
+    // 舵机位置条形图 (显示 4 个)
+    int y = 45;
+    for (int i = 1; i <= 4 && i <= MAX_SERVO_ID; i++) {
         mDisplay->setCursor(0, y);
         mDisplay->printf("%d:", i);
         
         // 绘制位置条
-        // 这里简化处理，实际应该从 servoDriver 获取
-        mDisplay->drawRect(20, y, 100, 6, SSD1306_WHITE);
+        mDisplay->drawRect(16, y, 110, 6, SSD1306_WHITE);
         
-        y += 10;
+        y += 12;
     }
     
     display();
