@@ -73,7 +73,112 @@
 
 ## 安装说明
 
-### 1. 安装依赖库
+### 方式一：PlatformIO (推荐)
+
+PlatformIO 是更专业的嵌入式开发环境，支持 VS Code 集成，自动管理依赖库。
+
+#### 1. 安装 PlatformIO
+
+**方法 A：VS Code 扩展 (推荐)**
+1. 安装 [Visual Studio Code](https://code.visualstudio.com/)
+2. 在扩展市场搜索并安装 **PlatformIO IDE**
+3. 重启 VS Code
+
+**方法 B：命令行**
+```bash
+pip install platformio
+```
+
+#### 2. 克隆项目
+
+```bash
+git clone https://github.com/weihan-ott/lerobot-esp32-waveshare.git
+cd lerobot-esp32-waveshare
+```
+
+#### 3. 编译固件
+
+**使用 VS Code:**
+1. 打开项目文件夹
+2. 点击左下角 PlatformIO 图标
+3. 选择 `esp32dev` → `Build`
+
+**使用命令行:**
+```bash
+# 编译项目
+pio run
+
+# 编译并上传
+pio run --target upload
+
+# 上传后打开串口监视器
+pio run --target upload && pio device monitor
+```
+
+#### 4. 上传固件到 ESP32
+
+1. **连接硬件**: 用 USB Type-C 线连接驱动板到电脑
+2. **选择端口** (自动或手动):
+   ```bash
+   # 查看可用端口
+   pio device list
+   
+   # 指定端口上传 (如果需要)
+   pio run --target upload --upload-port /dev/ttyUSB0  # Linux/Mac
+   pio run --target upload --upload-port COM3          # Windows
+   ```
+3. **进入下载模式**:
+   - 按住 **BOOT** 按钮
+   - 点击 **RST** 按钮 (或插拔 USB 重新上电)
+   - 松开 **BOOT** 按钮
+4. **自动上传**: 运行上传命令后会自动烧录
+
+#### 5. 常用 PlatformIO 命令
+
+```bash
+# 编译项目
+pio run
+
+# 上传固件
+pio run --target upload
+
+# 清理构建文件
+pio run --target clean
+
+# 打开串口监视器 (波特率 115200)
+pio device monitor
+
+# 上传并监控
+pio run --target upload && pio device monitor
+
+# 编译发布版本 (优化大小)
+pio run -e esp32dev --target upload
+```
+
+#### 6. 项目配置
+
+`platformio.ini` 已预配置好：
+```ini
+[env:esp32dev]
+platform = espressif32
+board = esp32dev
+framework = arduino
+monitor_speed = 115200
+
+lib_deps = 
+    adafruit/Adafruit SSD1306 @ ^2.5.9
+    adafruit/Adafruit GFX Library @ ^1.11.9
+    fastled/FastLED @ 3.7.8
+    bblanchon/ArduinoJson @ ^6.21.4
+```
+
+---
+
+### 方式二：Arduino IDE
+
+如果你更喜欢 Arduino IDE，可以使用单文件版本。
+
+#### 1. 安装依赖库
 
 在 Arduino IDE 中安装以下库：
 - `ESP32Servo` (ESP32 舵机控制)
@@ -82,7 +187,7 @@
 - `FastLED` (WS2812 LED 控制)
 - `ArduinoJson` (JSON 序列化)
 
-### 2. 配置 Arduino IDE
+#### 2. 配置 Arduino IDE
 
 1. 添加 ESP32 开发板管理器 URL:
    ```
@@ -97,15 +202,26 @@
    - Flash Size: "4MB"
    - Partition Scheme: "Default 4MB with spiffs"
 
-### 3. 上传固件
+#### 3. 上传固件
 
-1. 用 USB Type-C 线连接驱动板到电脑
-2. 选择正确的串口 (COMx 或 /dev/ttyUSBx)
-3. 点击上传按钮
+1. 打开 `lerobot-esp32/lerobot-esp32.ino`
+2. 用 USB Type-C 线连接驱动板到电脑
+3. 选择正确的串口 (COMx 或 /dev/ttyUSBx)
+4. 点击上传按钮
 
-### 4. 切换工作模式
+---
 
-长按 BOOT 按钮 (GPIO0) 超过 2 秒切换模式。
+### 首次使用
+
+#### 切换工作模式
+
+上电后，**长按 BOOT 按钮 (GPIO0) 超过 2 秒** 切换工作模式。
+
+#### 检查工作状态
+
+- **OLED 显示屏**: 显示当前模式、舵机数量、连接状态
+- **RGB LED**: 显示当前模式颜色
+- **串口输出**: 连接串口监视器 (115200 波特率) 查看调试信息
 
 ## Web 控制界面
 
