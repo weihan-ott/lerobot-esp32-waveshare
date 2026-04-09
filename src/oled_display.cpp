@@ -126,50 +126,82 @@ void OLEDDisplay::showStatus(const char* mac, DeviceMode mode, int servoCount, c
     
     clear();
     
-    // 所有行都使用字号2（16像素高），四行刚好填满64像素
-    // 行高16像素: 0, 16, 32, 48
+    // 使用字号1（6x8像素），但可以稍微放大一点用 setTextSize(1)
+    // 左对齐，行间距适当
+    // 行高 14 像素: 0, 14, 28, 42, 56
     
-    // 第一行：模式
-    mDisplay->setTextSize(2);
-    const char* modeName = getModeName(mode);
-    int textWidth = strlen(modeName) * 12;  // 字号2每个字符约12像素宽
-    int x = (128 - textWidth) / 2;
-    if (x < 0) x = 0;
-    mDisplay->setCursor(x, 0);
-    mDisplay->print(modeName);
+    mDisplay->setTextSize(1);
     
-    // 第二行：MAC 后6位（字号2，能显示约10个字符）
-    mDisplay->setTextSize(2);
-    // 从 MAC 字符串提取后6个字符
-    int macLen = strlen(mac);
-    const char* macShort = macLen > 6 ? mac + macLen - 6 : mac;
-    int macWidth = strlen(macShort) * 12;
-    int macX = (128 - macWidth) / 2;
-    if (macX < 0) macX = 0;
-    mDisplay->setCursor(macX, 16);
-    mDisplay->print(macShort);
+    // 第一行：模式（字号稍微大一点）
+    mDisplay->setCursor(0, 0);
+    mDisplay->print("Mode:");
+    mDisplay->print(getModeName(mode));
     
-    // 第三行：舵机数量（简化为 S:X/10）
-    mDisplay->setTextSize(2);
-    char servoStr[8];
-    snprintf(servoStr, sizeof(servoStr), "S:%d/10", servoCount);
-    int servoWidth = strlen(servoStr) * 12;
-    int servoX = (128 - servoWidth) / 2;
-    if (servoX < 0) servoX = 0;
-    mDisplay->setCursor(servoX, 32);
-    mDisplay->print(servoStr);
+    // 第二行：MAC 地址
+    mDisplay->setCursor(0, 14);
+    mDisplay->print("MAC:");
+    mDisplay->print(mac);
     
-    // 第四行：连接状态（最多显示10个字符）
-    mDisplay->setTextSize(2);
-    // 截断状态字符串到10个字符以内
-    char statusShort[11];
-    strncpy(statusShort, status, 10);
-    statusShort[10] = '\0';
-    int statusWidth = strlen(statusShort) * 12;
-    int statusX = (128 - statusWidth) / 2;
-    if (statusX < 0) statusX = 0;
-    mDisplay->setCursor(statusX, 48);
-    mDisplay->print(statusShort);
+    // 第三行：舵机数量
+    mDisplay->setCursor(0, 28);
+    mDisplay->print("Servos:");
+    mDisplay->print(servoCount);
+    mDisplay->print("/10");
+    
+    // 第四行：连接状态
+    mDisplay->setCursor(0, 42);
+    mDisplay->print("Status:");
+    mDisplay->print(status);
+    
+    display();
+}
+
+void OLEDDisplay::showSearching(int currentId, int maxId, int detected) {
+    if (!mDisplay) return;
+    
+    clear();
+    
+    mDisplay->setTextSize(1);
+    
+    // 第一行：搜索提示
+    mDisplay->setCursor(0, 0);
+    mDisplay->print("Search STS/SCS...");
+    
+    // 第二行：搜索范围
+    mDisplay->setCursor(0, 16);
+    mDisplay->print("Max_ID ");
+    mDisplay->print(maxId);
+    mDisplay->print("-Ping 0-");
+    mDisplay->print(maxId);
+    
+    // 第三行：当前搜索进度
+    mDisplay->setCursor(0, 32);
+    mDisplay->print("Checking ID:");
+    mDisplay->print(currentId);
+    
+    // 第四行：已发现数量
+    mDisplay->setCursor(0, 48);
+    mDisplay->print("Detected:");
+    mDisplay->print(detected);
+    
+    display();
+}
+
+void OLEDDisplay::showSearchComplete(int detected) {
+    if (!mDisplay) return;
+    
+    clear();
+    
+    mDisplay->setTextSize(1);
+    
+    // 居中显示完成信息
+    mDisplay->setCursor(20, 20);
+    mDisplay->print("Search Complete!");
+    
+    mDisplay->setCursor(25, 40);
+    mDisplay->print("Found ");
+    mDisplay->print(detected);
+    mDisplay->print(" servos");
     
     display();
 }

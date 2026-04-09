@@ -18,6 +18,10 @@ public:
     void setMode(DeviceMode mode);
     void setStatus(uint32_t statusColor);
     
+    // 搜索状态
+    void setSearching(bool searching);
+    bool isSearching();
+    
     // 闪烁效果
     void blink(uint32_t color, int times = 3, int duration = 200);
     void pulse(uint32_t color, int duration = 1000);
@@ -31,6 +35,11 @@ private:
     uint32_t currentStatus;
     uint32_t lastUpdateTime;
     bool blinkState;
+    
+    // 搜索状态
+    bool searching;
+    bool searchBlinkState;
+    uint32_t searchLastUpdate;
     
     // 动画状态
     enum AnimationState {

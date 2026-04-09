@@ -73,9 +73,21 @@ void setup() {
     
     // 扫描舵机
     DEBUG_PRINTLN("Scanning servos...");
-    oledDisplay.showMessage("Scanning servos...");
-    int servoCount = servoDriver.scanServos(1, MAX_SERVO_ID);
+    ledIndicator.setSearching(true);  // 开始搜索，LED 闪烁蓝灯
+    
+    // 使用回调函数扫描，实时更新显示
+    int servoCount = servoDriver.scanServosWithCallback(0, 10, [](int currentId, int maxId, int detected) {
+        oledDisplay.showSearching(currentId, maxId, detected);
+        ledIndicator.update();  // 更新 LED 闪烁
+        delay(10);
+    });
+    
+    ledIndicator.setSearching(false);  // 搜索结束，停止闪烁
     DEBUG_PRINTF("Found %d servos\n", servoCount);
+    
+    // 显示搜索完成
+    oledDisplay.showSearchComplete(servoCount);
+    delay(1000);
     
     // 初始化 WiFi
     wifiManager.begin();

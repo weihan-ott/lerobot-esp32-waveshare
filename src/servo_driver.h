@@ -73,6 +73,10 @@ public:
     // 扫描舵机
     int scanServos(uint8_t startId = 1, uint8_t endId = MAX_SERVO_ID);
     
+    // 带进度回调的扫描舵机
+    typedef void (*ScanCallback)(int currentId, int maxId, int detected);
+    int scanServosWithCallback(uint8_t startId, uint8_t endId, ScanCallback callback);
+    
     // 基本操作
     bool ping(uint8_t id);
     bool setID(uint8_t oldId, uint8_t newId);

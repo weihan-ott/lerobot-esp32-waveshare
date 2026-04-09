@@ -11,6 +11,8 @@ LEDIndicator::LEDIndicator() {
     animDuration = 0;
     animColor = 0;
     animStep = 0;
+    searching = false;
+    searchBlinkState = false;
 }
 
 LEDIndicator::~LEDIndicator() {
@@ -30,6 +32,22 @@ bool LEDIndicator::begin() {
 
 void LEDIndicator::update() {
     uint32_t now = millis();
+    
+    // 搜索状态：蓝色闪烁（最高优先级）
+    if (searching) {
+        if (now - searchLastUpdate >= 200) {  // 200ms 闪烁周期
+            searchLastUpdate = now;
+            searchBlinkState = !searchBlinkState;
+            
+            if (searchBlinkState) {
+                leds[0] = CRGB::Blue;  // 蓝色亮
+            } else {
+                leds[0] = CRGB::Black;  // 灭
+            }
+            FastLED.show();
+        }
+        return;  // 搜索状态下不执行其他动画
+    }
     
     // 处理动画
     switch (animState) {
@@ -211,4 +229,16 @@ const char* LEDIndicator::getStatusText() {
     if (currentStatus == STATUS_TAKEOVER) return "PC";
     if (currentStatus == STATUS_OVERLOAD) return "OVER";
     return "--";
+}
+
+void LEDIndicator::setSearching(bool searchState) {
+    searching = searchState;
+    if (searching) {
+        searchBlinkState = false;
+        searchLastUpdate = millis();
+    }
+}
+
+bool LEDIndicator::isSearching() {
+    return searching;
 }

@@ -23,6 +23,10 @@ public:
     void showMode(DeviceMode mode);
     void showStatus(const char* mac, DeviceMode mode, int servoCount, const char* status);
     
+    // 搜索舵机显示
+    void showSearching(int currentId, int maxId, int detected);
+    void showSearchComplete(int detected);
+    
     // 基本绘图
     void drawText(int x, int y, const char* text, int size = 1);
     void drawCenteredText(int y, const char* text, int size = 1);

@@ -209,6 +209,33 @@ int ServoDriver::scanServos(uint8_t startId, uint8_t endId) {
     return count;
 }
 
+int ServoDriver::scanServosWithCallback(uint8_t startId, uint8_t endId, ScanCallback callback) {
+    int count = 0;
+    
+    DEBUG_PRINTLN("Scanning servos with callback...");
+    
+    for (uint8_t id = startId; id <= endId && id <= MAX_SERVO_ID; id++) {
+        // 调用回调函数更新显示
+        if (callback) {
+            callback(id, endId, count);
+        }
+        
+        if (ping(id)) {
+            count++;
+            DEBUG_PRINTF("  Found servo ID %d\n", id);
+            
+            // 读取初始位置
+            uint16_t pos = getPosition(id);
+            servos[id].currentPos = pos;
+            servos[id].targetPos = pos;
+        }
+        delay(5);  // 避免总线过载
+    }
+    
+    DEBUG_PRINTF("Total servos found: %d\n", count);
+    return count;
+}
+
 bool ServoDriver::writeByte(uint8_t id, uint8_t reg, uint8_t value) {
     uint8_t params[2] = {reg, value};
     sendInstruction(id, STS_CMD_WRITE, params, 2);
