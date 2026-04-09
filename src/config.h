@@ -5,11 +5,11 @@
 #include <Arduino.h>
 
 // ==================== 硬件引脚定义 ====================
-// 舵机 UART (UART2 - 半双工)
+// 舵机 UART (UART2 - 全双工)
+// 微雪驱动板使用 GPIO 18 (RX) 和 GPIO 19 (TX)
 #define SERVO_UART_NUM  2
-#define SERVO_TX_PIN    17
-#define SERVO_RX_PIN    16
-#define SERVO_TXEN_PIN  18    // TX 使能控制 (SN74LVC1G126)
+#define SERVO_RX_PIN    18    // S_RXD
+#define SERVO_TX_PIN    19    // S_TXD
 
 // OLED 显示屏 (I2C) - 微雪驱动板使用 128x32
 #define OLED_SDA        21
