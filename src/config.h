@@ -11,12 +11,12 @@
 #define SERVO_RX_PIN    16
 #define SERVO_TXEN_PIN  18    // TX 使能控制 (SN74LVC1G126)
 
-// OLED 显示屏 (I2C)
+// OLED 显示屏 (I2C) - 微雪驱动板使用 128x32
 #define OLED_SDA        21
 #define OLED_SCL        22
 #define OLED_ADDRESS    0x3C
 #define OLED_WIDTH      128
-#define OLED_HEIGHT     64
+#define OLED_HEIGHT     32
 
 // 用户按钮
 #define BOOT_BUTTON     0     // GPIO0
