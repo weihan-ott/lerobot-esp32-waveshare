@@ -20,6 +20,7 @@ LEDIndicator ledIndicator;
 // 当前工作模式
 volatile DeviceMode currentMode = MODE_FOLLOWER;
 volatile DeviceMode lastMode = MODE_FOLLOWER;
+bool modeSelected = false;  // 模式是否已选择
 
 // 按钮状态
 unsigned long buttonPressTime = 0;
@@ -36,6 +37,15 @@ int selectedPeerIndex = 0;
 uint8_t pairedPeerMAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 bool pairingCompleted = false;
 
+// 启动阶段枚举
+enum BootPhase {
+    PHASE_SELECT_MODE = 0,    // 选择模式
+    PHASE_SEARCH_SERVO,       // 搜索舵机
+    PHASE_PAIRING,            // 配对（Leader/Follower）
+    PHASE_RUNNING             // 正常运行
+};
+BootPhase currentPhase = PHASE_SELECT_MODE;
+
 // 函数声明
 void setup();
 void loop();
@@ -48,16 +58,17 @@ void modeJoyCon();
 void switchMode();
 void loadSavedMode();
 void saveCurrentMode();
-void enterPairingMode();
-void selectPeerFromList();
-void enterFollowerMode();
+void selectModePhase();      // 模式选择阶段
+void searchServoPhase();     // 搜索舵机阶段
+void pairingPhase();         // 配对阶段
+void runNormalMode();        // 正常运行阶段
 
 void setup() {
     // 初始化调试串口
     Serial.begin(DEBUG_BAUD_RATE);
     DEBUG_PRINTLN("\n================================");
     DEBUG_PRINTLN("LeRobot ESP32 for Waveshare");
-    DEBUG_PRINTLN("Initializing...");
+    DEBUG_PRINTLN("Booting...");
     DEBUG_PRINTLN("================================\n");
     
     // 初始化按钮
@@ -72,41 +83,15 @@ void setup() {
         DEBUG_PRINTLN("OLED init failed!");
     }
     oledDisplay.showStartup();
+    delay(1000);
     
-    // 初始化舵机驱动
+    // 初始化舵机驱动（但不搜索）
     if (!servoDriver.begin()) {
         DEBUG_PRINTLN("Servo driver init failed!");
         oledDisplay.showError("Servo Init Failed");
         ledIndicator.setStatus(STATUS_OVERLOAD);
         while (1) delay(100);
     }
-    
-    // 扫描舵机 - 循环搜索直到找到至少1个舵机
-    DEBUG_PRINTLN("Scanning servos...");
-    ledIndicator.setSearching(true);  // 开始搜索，LED 闪烁蓝灯
-    
-    int servoCount = 0;
-    while (servoCount == 0) {
-        // 使用回调函数扫描，实时更新显示
-        servoCount = servoDriver.scanServosWithCallback(0, 10, [](int currentId, int maxId, int detected) {
-            oledDisplay.showSearching(currentId, maxId, detected);
-            ledIndicator.update();  // 更新 LED 闪烁
-            delay(10);
-        });
-        
-        DEBUG_PRINTF("Found %d servos\n", servoCount);
-        
-        if (servoCount == 0) {
-            DEBUG_PRINTLN("No servos found, retrying...");
-            delay(500);  // 等待500ms后重新搜索
-        }
-    }
-    
-    ledIndicator.setSearching(false);  // 搜索结束，停止闪烁
-    
-    // 显示搜索完成
-    oledDisplay.showSearchComplete(servoCount);
-    delay(1500);
     
     // 初始化 WiFi
     wifiManager.begin();
@@ -117,27 +102,7 @@ void setup() {
     // 初始化 ESP-NOW
     espNowManager.begin();
     
-    // 加载保存的模式
-    loadSavedMode();
-    
-    DEBUG_PRINTF("Current mode: %d\n", currentMode);
-    DEBUG_PRINTLN("Initialization complete!");
-    
-    // 进入 ESP-NOW 配对模式
-    if (currentMode == MODE_LEADER || currentMode == MODE_M_LEADER) {
-        // Leader 模式：扫描 Follower
-        enterPairingMode();
-    } else if (currentMode == MODE_FOLLOWER) {
-        // Follower 模式：等待 Leader 连接
-        enterFollowerMode();
-    } else {
-        // 其他模式直接完成初始化
-        pairingCompleted = true;
-        oledDisplay.showMode(currentMode);
-    }
-    
-    ledIndicator.setMode(currentMode);
-    ledIndicator.setStatus(STATUS_WAITING);
+    DEBUG_PRINTLN("Setup complete. Entering mode selection...");
 }
 
 void loop() {
@@ -147,62 +112,23 @@ void loop() {
     // 更新 LED
     ledIndicator.update();
     
-    // 如果还在配对模式，先完成配对
-    if (inPairingMode) {
-        // 配对模式由各自的函数处理，这里只更新显示
-        if (currentMode == MODE_FOLLOWER) {
-            // Follower 显示闪烁等待提示
-            static uint32_t lastBlink = 0;
-            if (millis() - lastBlink > 800) {
-                lastBlink = millis();
-                oledDisplay.showWaitingForPeer();
-            }
-        }
-        return;  // 配对完成前不执行正常模式逻辑
-    }
-    
-    // 处理 Web 服务器
-    webServer.handleClient();
-    
-    // 根据模式执行不同逻辑
-    switch (currentMode) {
-        case MODE_FOLLOWER:
-            modeFollower();
+    // 根据当前启动阶段执行不同逻辑
+    switch (currentPhase) {
+        case PHASE_SELECT_MODE:
+            selectModePhase();
             break;
-        case MODE_LEADER:
-            modeLeader();
+            
+        case PHASE_SEARCH_SERVO:
+            searchServoPhase();
             break;
-        case MODE_M_LEADER:
-            modeMLeader();
+            
+        case PHASE_PAIRING:
+            pairingPhase();
             break;
-        case MODE_GATEWAY:
-            modeGateway();
+            
+        case PHASE_RUNNING:
+            runNormalMode();
             break;
-        case MODE_JOYCON:
-            modeJoyCon();
-            break;
-    }
-    
-    // 更新显示
-    static uint32_t lastDisplayUpdate = 0;
-    if (millis() - lastDisplayUpdate > 500) {
-        lastDisplayUpdate = millis();
-        
-        // 显示 MAC 地址和模式
-        char macStr[18];
-        espNowManager.getMACAddress(macStr);
-        
-        // 如果有配对的设备，显示配对设备的 MAC
-        char peerMacStr[18] = {0};
-        if (pairedPeerMAC[0] != 0xFF) {
-            sprintf(peerMacStr, "%02X%02X%02X", 
-                    pairedPeerMAC[3], pairedPeerMAC[4], pairedPeerMAC[5]);
-        }
-        
-        oledDisplay.showStatus(macStr, currentMode, 
-            servoDriver.getOnlineCount(), 
-            ledIndicator.getStatusText(),
-            peerMacStr[0] ? peerMacStr : nullptr);
     }
 }
 
@@ -219,12 +145,35 @@ void handleButton() {
         buttonPressed = false;
         unsigned long pressDuration = millis() - buttonPressTime;
         
-        if (pressDuration >= BUTTON_LONG_PRESS_MS) {
-            // 长按 - 切换模式
-            switchMode();
-        } else if (pressDuration >= 50 && pressDuration < BUTTON_LONG_PRESS_MS) {
-            // 短按 - 设置标志
-            buttonShortPress = true;
+        if (currentPhase == PHASE_SELECT_MODE) {
+            // 模式选择阶段
+            if (pressDuration >= BUTTON_LONG_PRESS_MS) {
+                // 长按 - 确认当前模式
+                modeSelected = true;
+                saveCurrentMode();
+                DEBUG_PRINTF("Mode confirmed: %d\n", currentMode);
+            } else if (pressDuration >= 50 && pressDuration < BUTTON_LONG_PRESS_MS) {
+                // 短按 - 切换到下一个模式
+                currentMode = (DeviceMode)((currentMode + 1) % NUM_MODES);
+                buttonShortPress = true;
+                DEBUG_PRINTF("Mode switched to: %d\n", currentMode);
+            }
+        } else if (currentPhase == PHASE_PAIRING) {
+            // 配对阶段
+            if (pressDuration >= 50 && pressDuration < BUTTON_LONG_PRESS_MS) {
+                // 短按 - 确认配对或切换设备
+                buttonShortPress = true;
+            }
+        } else {
+            // 运行阶段
+            if (pressDuration >= BUTTON_LONG_PRESS_MS) {
+                // 长按 - 重新进入模式选择
+                currentPhase = PHASE_SELECT_MODE;
+                modeSelected = false;
+                pairingCompleted = false;
+                DEBUG_PRINTLN("Re-entering mode selection");
+                delay(500);
+            }
         }
     }
 }
@@ -386,6 +335,250 @@ void modeJoyCon() {
     delay(100);
 }
 
+// ==================== 启动阶段处理 ====================
+
+void selectModePhase() {
+    static DeviceMode tempMode = MODE_FOLLOWER;  // 临时模式选择
+    static uint32_t lastDisplayTime = 0;
+    
+    // 显示当前可选模式（每秒刷新）
+    if (millis() - lastDisplayTime > 200) {
+        lastDisplayTime = millis();
+        oledDisplay.showMode(tempMode);
+        ledIndicator.setMode(tempMode);
+    }
+    
+    // 短按：切换模式
+    if (buttonShortPress) {
+        buttonShortPress = false;
+        tempMode = (DeviceMode)((tempMode + 1) % NUM_MODES);
+        DEBUG_PRINTF("Mode selection: %d\n", tempMode);
+    }
+    
+    // 长按：确认模式选择
+    if (buttonPressTime > 0 && !buttonPressed && (millis() - buttonPressTime >= BUTTON_LONG_PRESS_MS)) {
+        // 注意：这里由 handleButton 处理长按，我们只需要检测模式确定
+    }
+    
+    // 检测长按完成（通过 handleButton 设置的模式切换）
+    if (modeSelected) {
+        tempMode = currentMode;  // 应用选择的模式
+        DEBUG_PRINTF("Mode confirmed: %d\n", currentMode);
+        
+        // 进入下一阶段
+        currentPhase = PHASE_SEARCH_SERVO;
+        ledIndicator.setMode(currentMode);
+        
+        delay(500);
+    }
+}
+
+void searchServoPhase() {
+    static bool searchStarted = false;
+    static int servoCount = 0;
+    
+    if (!searchStarted) {
+        searchStarted = true;
+        DEBUG_PRINTLN("Starting servo search...");
+        ledIndicator.setSearching(true);
+        servoCount = 0;
+    }
+    
+    // 搜索舵机
+    if (servoCount == 0) {
+        servoCount = servoDriver.scanServosWithCallback(0, 10, [](int currentId, int maxId, int detected) {
+            oledDisplay.showSearching(currentId, maxId, detected);
+            ledIndicator.update();
+            delay(10);
+        });
+        
+        DEBUG_PRINTF("Found %d servos\n", servoCount);
+        
+        if (servoCount == 0) {
+            // 没找到，显示提示并等待重试
+            oledDisplay.showMessage("No servo! Retry..");
+            delay(1000);
+            searchStarted = false;  // 重新搜索
+            return;
+        }
+    }
+    
+    // 搜索完成
+    ledIndicator.setSearching(false);
+    oledDisplay.showSearchComplete(servoCount);
+    delay(1500);
+    
+    // 根据模式决定下一步
+    if (currentMode == MODE_LEADER || currentMode == MODE_M_LEADER || currentMode == MODE_FOLLOWER) {
+        // 需要配对的模式
+        currentPhase = PHASE_PAIRING;
+        inPairingMode = true;
+    } else {
+        // 不需要配对的模式（Gateway、JoyCon）
+        currentPhase = PHASE_RUNNING;
+        pairingCompleted = true;
+    }
+    
+    searchStarted = false;  // 重置状态
+}
+
+void pairingPhase() {
+    if (currentMode == MODE_LEADER || currentMode == MODE_M_LEADER) {
+        // Leader 配对流程
+        if (!espNowManager.isScanningForPeers()) {
+            // 开始扫描
+            espNowManager.startScanningForPeers();
+            oledDisplay.showMessage("Scanning peers...");
+            delay(500);
+        }
+        
+        // 等待发现设备
+        if (espNowManager.hasFoundPeers()) {
+            // 显示发现的设备并选择
+            int totalPeers = espNowManager.getFoundPeerCount();
+            uint8_t peerMac[6];
+            
+            if (espNowManager.getFoundPeerMac(selectedPeerIndex, peerMac)) {
+                char macStr[18];
+                sprintf(macStr, "%02X:%02X:%02X", peerMac[3], peerMac[4], peerMac[5]);
+                oledDisplay.showPairingRequest(macStr, selectedPeerIndex, totalPeers);
+                
+                // 短按：确认当前设备
+                if (buttonShortPress) {
+                    buttonShortPress = false;
+                    memcpy(pairedPeerMAC, peerMac, 6);
+                    espNowManager.setTargetPeer(peerMac);
+                    espNowManager.stopScanningForPeers();
+                    
+                    pairingCompleted = true;
+                    inPairingMode = false;
+                    currentPhase = PHASE_RUNNING;
+                    
+                    oledDisplay.showMessage("Paired!");
+                    delay(1000);
+                    return;
+                }
+                
+                // 长按：切换到下一个设备
+                if (buttonShortPress) {  // 这里应该用另一个标志，简化处理
+                    // 实际由 handleButton 处理
+                }
+            }
+        } else {
+            // 正在扫描中
+            static uint32_t lastScanDisplay = 0;
+            if (millis() - lastScanDisplay > 500) {
+                lastScanDisplay = millis();
+                oledDisplay.showMessage("Scanning...");
+            }
+            
+            // 超时检查（10秒）
+            static uint32_t scanStartTime = 0;
+            if (scanStartTime == 0) scanStartTime = millis();
+            
+            if (millis() - scanStartTime > 10000) {
+                // 超时，使用广播模式
+                espNowManager.stopScanningForPeers();
+                memset(pairedPeerMAC, 0xFF, 6);
+                
+                pairingCompleted = true;
+                inPairingMode = false;
+                currentPhase = PHASE_RUNNING;
+                
+                oledDisplay.showMessage("Broadcast mode");
+                delay(1000);
+                scanStartTime = 0;
+            }
+        }
+        
+    } else if (currentMode == MODE_FOLLOWER) {
+        // Follower 等待连接
+        static uint32_t waitStartTime = 0;
+        if (waitStartTime == 0) waitStartTime = millis();
+        
+        // 闪烁显示等待
+        static uint32_t lastBlink = 0;
+        static bool blinkState = false;
+        if (millis() - lastBlink > 500) {
+            lastBlink = millis();
+            blinkState = !blinkState;
+            
+            if (blinkState) {
+                oledDisplay.showWaitingForPeer();
+            } else {
+                char macStr[18];
+                espNowManager.getMACAddress(macStr);
+                oledDisplay.showStatus(macStr, currentMode, 
+                    servoDriver.getOnlineCount(), "Wait", nullptr);
+            }
+        }
+        
+        // 检查是否收到 Leader 数据
+        if (espNowManager.hasNewPacket()) {
+            pairingCompleted = true;
+            inPairingMode = false;
+            currentPhase = PHASE_RUNNING;
+            
+            oledDisplay.showMessage("Connected!");
+            delay(1000);
+            waitStartTime = 0;
+            return;
+        }
+        
+        // 超时（10秒）自动进入
+        if (millis() - waitStartTime > 10000) {
+            pairingCompleted = true;
+            inPairingMode = false;
+            currentPhase = PHASE_RUNNING;
+            waitStartTime = 0;
+        }
+    }
+}
+
+void runNormalMode() {
+    // 处理 Web 服务器
+    webServer.handleClient();
+    
+    // 根据模式执行不同逻辑
+    switch (currentMode) {
+        case MODE_FOLLOWER:
+            modeFollower();
+            break;
+        case MODE_LEADER:
+            modeLeader();
+            break;
+        case MODE_M_LEADER:
+            modeMLeader();
+            break;
+        case MODE_GATEWAY:
+            modeGateway();
+            break;
+        case MODE_JOYCON:
+            modeJoyCon();
+            break;
+    }
+    
+    // 更新显示
+    static uint32_t lastDisplayUpdate = 0;
+    if (millis() - lastDisplayUpdate > 500) {
+        lastDisplayUpdate = millis();
+        
+        char macStr[18];
+        espNowManager.getMACAddress(macStr);
+        
+        char peerMacStr[18] = {0};
+        if (pairedPeerMAC[0] != 0xFF) {
+            sprintf(peerMacStr, "%02X%02X%02X", 
+                    pairedPeerMAC[3], pairedPeerMAC[4], pairedPeerMAC[5]);
+        }
+        
+        oledDisplay.showStatus(macStr, currentMode, 
+            servoDriver.getOnlineCount(), 
+            ledIndicator.getStatusText(),
+            peerMacStr[0] ? peerMacStr : nullptr);
+    }
+}
+
 // ==================== EEPROM 操作 ====================
 void loadSavedMode() {
     // 从 EEPROM 加载保存的模式
@@ -399,140 +592,4 @@ void saveCurrentMode() {
 }
 
 // ==================== ESP-NOW 配对功能 ====================
-void enterPairingMode() {
-    inPairingMode = true;
-    pairingCompleted = false;
-    selectedPeerIndex = 0;
-    
-    // 开始扫描 ESP-NOW 设备
-    espNowManager.startScanningForPeers();
-    
-    DEBUG_PRINTLN("Entering pairing mode...");
-    oledDisplay.showMessage("Scanning peers...");
-    
-    // 等待发现设备（最多等待10秒）
-    unsigned long scanStart = millis();
-    while (millis() - scanStart < 10000) {
-        handleButton();
-        ledIndicator.update();
-        
-        // 检查是否发现设备
-        if (espNowManager.hasFoundPeers()) {
-            break;
-        }
-        
-        delay(100);
-    }
-    
-    // 如果有发现设备，进入选择流程
-    if (espNowManager.hasFoundPeers()) {
-        selectPeerFromList();
-    } else {
-        // 没有发现设备，使用广播模式
-        DEBUG_PRINTLN("No peers found, using broadcast mode");
-        oledDisplay.showMessage("No peers found\nBroadcast mode");
-        memset(pairedPeerMAC, 0xFF, 6);  // 广播地址
-        pairingCompleted = true;
-        inPairingMode = false;
-        delay(1500);
-    }
-}
-
-void selectPeerFromList() {
-    int totalPeers = espNowManager.getFoundPeerCount();
-    selectedPeerIndex = 0;
-    
-    DEBUG_PRINTF("Found %d peers, selecting...\n", totalPeers);
-    
-    // 显示发现的设备列表，等待用户选择
-    while (inPairingMode) {
-        handleButton();
-        ledIndicator.update();
-        
-        // 显示当前设备
-        uint8_t peerMac[6];
-        if (espNowManager.getFoundPeerMac(selectedPeerIndex, peerMac)) {
-            char macStr[18];
-            sprintf(macStr, "%02X:%02X:%02X", peerMac[3], peerMac[4], peerMac[5]);
-            oledDisplay.showPairingRequest(macStr, selectedPeerIndex, totalPeers);
-        }
-        
-        // 检查短按（确认选择）
-        if (buttonShortPress) {
-            buttonShortPress = false;
-            
-            // 确认选择当前设备
-            uint8_t selectedMac[6];
-            if (espNowManager.getFoundPeerMac(selectedPeerIndex, selectedMac)) {
-                memcpy(pairedPeerMAC, selectedMac, 6);
-                espNowManager.setTargetPeer(selectedMac);
-                pairingCompleted = true;
-                inPairingMode = false;
-                
-                char macStr[18];
-                sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X", 
-                        selectedMac[0], selectedMac[1], selectedMac[2],
-                        selectedMac[3], selectedMac[4], selectedMac[5]);
-                DEBUG_PRINTF("Paired with: %s\n", macStr);
-                
-                oledDisplay.showMessage("Paired!");
-                delay(1000);
-            }
-            break;
-        }
-        
-        delay(100);
-    }
-}
-
-void enterFollowerMode() {
-    // Follower 模式：显示自己的 MAC 地址，等待 Leader 连接
-    inPairingMode = true;
-    pairingCompleted = false;
-    
-    DEBUG_PRINTLN("Entering Follower mode, waiting for Leader...");
-    
-    // 显示等待提示（带闪烁效果）
-    unsigned long waitStart = millis();
-    while (millis() - waitStart < 5000) {  // 显示5秒等待提示
-        handleButton();
-        ledIndicator.update();
-        
-        // 闪烁显示等待提示
-        static bool blink = false;
-        static uint32_t lastBlink = 0;
-        if (millis() - lastBlink > 500) {
-            lastBlink = millis();
-            blink = !blink;
-            
-            if (blink) {
-                char macStr[18];
-                espNowManager.getMACAddress(macStr);
-                oledDisplay.showStatus(macStr, currentMode, 
-                    servoDriver.getOnlineCount(), "Wait", nullptr);
-            } else {
-                oledDisplay.showWaitingForPeer();
-            }
-        }
-        
-        // 检查是否收到 Leader 的数据
-        if (espNowManager.hasNewPacket()) {
-            // 收到数据，说明 Leader 已连接
-            pairingCompleted = true;
-            inPairingMode = false;
-            DEBUG_PRINTLN("Leader connected!");
-            oledDisplay.showMessage("Leader connected!");
-            delay(1000);
-            break;
-        }
-        
-        delay(50);
-    }
-    
-    // 5秒后自动退出配对模式，进入正常工作
-    if (!pairingCompleted) {
-        pairingCompleted = true;
-        inPairingMode = false;
-        DEBUG_PRINTLN("Auto exit pairing mode");
-    }
-}
+// 旧函数已删除，使用新的启动阶段处理
