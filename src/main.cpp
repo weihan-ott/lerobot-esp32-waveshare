@@ -580,25 +580,31 @@ void pairingPhase() {
             ServoDataPacket packet;
             if (espNowManager.getPacket(packet)) {
                 // 保存 Leader MAC 并确认配对
-                uint8_t leaderMac[6];
-                espNowManager.getTargetPeer();  // 这会获取最后发送方的 MAC
-                memcpy(pairedPeerMAC, leaderMac, 6);
-                
-                // 发送确认响应给 Leader
-                ServoDataPacket ackPacket;
-                ackPacket.packet_type = PACKET_TYPE_STATUS;
-                ackPacket.servo_count = servoDriver.getOnlineCount();
-                ackPacket.timestamp = millis();
-                espNowManager.broadcast(ackPacket);  // 广播确认
-                
-                pairingCompleted = true;
-                inPairingMode = false;
-                currentPhase = PHASE_RUNNING;
-                
-                oledDisplay.showMessage("Paired!");
-                delay(1000);
-                DEBUG_PRINTLN("Follower paired with Leader!");
-                return;
+                uint8_t* leaderMac = espNowManager.getTargetPeer();
+                if (leaderMac && leaderMac[0] != 0xFF) {
+                    memcpy(pairedPeerMAC, leaderMac, 6);
+                    
+                    // 添加 Leader 为对等点
+                    espNowManager.addPeer(leaderMac);
+                    
+                    // 发送确认响应给 Leader
+                    ServoDataPacket ackPacket;
+                    ackPacket.packet_type = PACKET_TYPE_STATUS;
+                    ackPacket.servo_count = servoDriver.getOnlineCount();
+                    ackPacket.timestamp = millis();
+                    espNowManager.send(leaderMac, ackPacket);  // 直接发送给 Leader
+                    
+                    pairingCompleted = true;
+                    inPairingMode = false;
+                    currentPhase = PHASE_RUNNING;
+                    
+                    oledDisplay.showMessage("Paired!");
+                    delay(1000);
+                    DEBUG_PRINTF("Follower paired with Leader: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                                 leaderMac[0], leaderMac[1], leaderMac[2],
+                                 leaderMac[3], leaderMac[4], leaderMac[5]);
+                    return;
+                }
             }
         }
         
