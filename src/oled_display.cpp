@@ -126,7 +126,10 @@ void OLEDDisplay::showStatus(const char* mac, DeviceMode mode, int servoCount, c
     
     clear();
     
-    // 第一行：模式（居中，大字）
+    // 所有行都使用字号2（16像素高），四行刚好填满64像素
+    // 行高16像素: 0, 16, 32, 48
+    
+    // 第一行：模式
     mDisplay->setTextSize(2);
     const char* modeName = getModeName(mode);
     int textWidth = strlen(modeName) * 12;  // 字号2每个字符约12像素宽
@@ -135,32 +138,38 @@ void OLEDDisplay::showStatus(const char* mac, DeviceMode mode, int servoCount, c
     mDisplay->setCursor(x, 0);
     mDisplay->print(modeName);
     
-    // 第二行：MAC 地址（居中）
-    mDisplay->setTextSize(1);
-    mDisplay->setCursor(0, 18);
-    int macWidth = strlen(mac) * 6;
+    // 第二行：MAC 后6位（字号2，能显示约10个字符）
+    mDisplay->setTextSize(2);
+    // 从 MAC 字符串提取后6个字符
+    int macLen = strlen(mac);
+    const char* macShort = macLen > 6 ? mac + macLen - 6 : mac;
+    int macWidth = strlen(macShort) * 12;
     int macX = (128 - macWidth) / 2;
     if (macX < 0) macX = 0;
-    mDisplay->setCursor(macX, 18);
-    mDisplay->print(mac);
+    mDisplay->setCursor(macX, 16);
+    mDisplay->print(macShort);
     
-    // 第三行：舵机数量（居中）
-    mDisplay->setTextSize(1);
-    char servoStr[16];
-    snprintf(servoStr, sizeof(servoStr), "Servos:%d/10", servoCount);
-    int servoWidth = strlen(servoStr) * 6;
+    // 第三行：舵机数量（简化为 S:X/10）
+    mDisplay->setTextSize(2);
+    char servoStr[8];
+    snprintf(servoStr, sizeof(servoStr), "S:%d/10", servoCount);
+    int servoWidth = strlen(servoStr) * 12;
     int servoX = (128 - servoWidth) / 2;
     if (servoX < 0) servoX = 0;
-    mDisplay->setCursor(servoX, 34);
+    mDisplay->setCursor(servoX, 32);
     mDisplay->print(servoStr);
     
-    // 第四行：连接状态（居中）
-    mDisplay->setTextSize(1);
-    int statusWidth = strlen(status) * 6;
+    // 第四行：连接状态（最多显示10个字符）
+    mDisplay->setTextSize(2);
+    // 截断状态字符串到10个字符以内
+    char statusShort[11];
+    strncpy(statusShort, status, 10);
+    statusShort[10] = '\0';
+    int statusWidth = strlen(statusShort) * 12;
     int statusX = (128 - statusWidth) / 2;
     if (statusX < 0) statusX = 0;
-    mDisplay->setCursor(statusX, 50);
-    mDisplay->print(status);
+    mDisplay->setCursor(statusX, 48);
+    mDisplay->print(statusShort);
     
     display();
 }
