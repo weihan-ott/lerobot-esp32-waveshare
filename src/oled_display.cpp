@@ -54,17 +54,16 @@ void OLEDDisplay::showStartup() {
     
     clear();
     
-    // 标题（更大字体）
+    // 全部使用字号2
     mDisplay->setTextSize(2);
-    mDisplay->setCursor(10, 8);
-    mDisplay->println("LeRobot");
+    mDisplay->setCursor(10, 0);
+    mDisplay->println("LeBot");
     
-    mDisplay->setTextSize(1);
-    mDisplay->setCursor(20, 32);
-    mDisplay->println("ESP32 Waveshare");
+    mDisplay->setCursor(0, 20);
+    mDisplay->println("Waveshare");
     
-    mDisplay->setCursor(25, 48);
-    mDisplay->println("Initializing...");
+    mDisplay->setCursor(0, 44);
+    mDisplay->println("Start...");
     
     display();
 }
@@ -73,9 +72,13 @@ void OLEDDisplay::showMessage(const char* message) {
     if (!mDisplay) return;
     
     clear();
-    mDisplay->setTextSize(1);
-    mDisplay->setCursor(0, 0);
-    mDisplay->println(message);
+    mDisplay->setTextSize(2);
+    mDisplay->setCursor(0, 24);
+    // 只显示前10个字符
+    char msgShort[11];
+    strncpy(msgShort, message, 10);
+    msgShort[10] = '\0';
+    mDisplay->println(msgShort);
     display();
 }
 
@@ -85,17 +88,16 @@ void OLEDDisplay::showError(const char* error) {
     clear();
     
     // 错误图标
-    mDisplay->drawRect(56, 10, 16, 16, SSD1306_WHITE);
     mDisplay->setTextSize(2);
-    mDisplay->setCursor(60, 12);
-    mDisplay->println("X");
+    mDisplay->setCursor(50, 0);
+    mDisplay->print("ERR");
     
-    // 错误信息
-    mDisplay->setTextSize(1);
-    mDisplay->setCursor(0, 35);
-    mDisplay->println("Error:");
-    mDisplay->setCursor(0, 48);
-    mDisplay->println(error);
+    // 错误信息（只显示前10个字符）
+    mDisplay->setCursor(0, 32);
+    char errShort[11];
+    strncpy(errShort, error, 10);
+    errShort[10] = '\0';
+    mDisplay->print(errShort);
     
     display();
 }
@@ -106,17 +108,21 @@ void OLEDDisplay::showMode(DeviceMode mode) {
     clear();
     
     mDisplay->setTextSize(2);
-    drawCenteredText(10, "Mode", 2);
+    mDisplay->setCursor(35, 0);
+    mDisplay->print("MODE");
     
-    mDisplay->setTextSize(1);
-    mDisplay->drawLine(0, 28, 128, 28, SSD1306_WHITE);
+    mDisplay->drawLine(0, 20, 128, 20, SSD1306_WHITE);
     
-    mDisplay->setTextSize(2);
+    // 模式名称（截取前8个字符居中）
     const char* modeName = getModeName(mode);
-    int textWidth = strlen(modeName) * 12;
+    char modeShort[9];
+    strncpy(modeShort, modeName, 8);
+    modeShort[8] = '\0';
+    int textWidth = strlen(modeShort) * 12;
     int x = (128 - textWidth) / 2;
-    mDisplay->setCursor(x, 40);
-    mDisplay->println(modeName);
+    if (x < 0) x = 0;
+    mDisplay->setCursor(x, 36);
+    mDisplay->print(modeShort);
     
     display();
 }
@@ -126,32 +132,35 @@ void OLEDDisplay::showStatus(const char* mac, DeviceMode mode, int servoCount, c
     
     clear();
     
-    // 使用字号1（6x8像素），但可以稍微放大一点用 setTextSize(1)
-    // 左对齐，行间距适当
-    // 行高 14 像素: 0, 14, 28, 42, 56
+    // 使用字号2（12x16像素），四行刚好填满64像素
+    // 行高 16 像素: 0, 16, 32, 48
+    mDisplay->setTextSize(2);
     
-    mDisplay->setTextSize(1);
-    
-    // 第一行：模式（字号稍微大一点）
+    // 第一行：模式（截取前5个字符避免超出）
     mDisplay->setCursor(0, 0);
-    mDisplay->print("Mode:");
-    mDisplay->print(getModeName(mode));
+    const char* modeName = getModeName(mode);
+    char modeShort[6];
+    strncpy(modeShort, modeName, 5);
+    modeShort[5] = '\0';
+    mDisplay->print(modeShort);
     
-    // 第二行：MAC 地址
-    mDisplay->setCursor(0, 14);
-    mDisplay->print("MAC:");
-    mDisplay->print(mac);
+    // 第二行：MAC后4位
+    mDisplay->setCursor(0, 16);
+    int macLen = strlen(mac);
+    const char* macShort = macLen > 4 ? mac + macLen - 4 : mac;
+    mDisplay->print(macShort);
     
     // 第三行：舵机数量
-    mDisplay->setCursor(0, 28);
-    mDisplay->print("Servos:");
+    mDisplay->setCursor(0, 32);
+    mDisplay->print("S:");
     mDisplay->print(servoCount);
-    mDisplay->print("/10");
     
-    // 第四行：连接状态
-    mDisplay->setCursor(0, 42);
-    mDisplay->print("Status:");
-    mDisplay->print(status);
+    // 第四行：状态（前5个字符）
+    mDisplay->setCursor(0, 48);
+    char statusShort[6];
+    strncpy(statusShort, status, 5);
+    statusShort[5] = '\0';
+    mDisplay->print(statusShort);
     
     display();
 }
@@ -161,27 +170,23 @@ void OLEDDisplay::showSearching(int currentId, int maxId, int detected) {
     
     clear();
     
-    mDisplay->setTextSize(1);
+    // 使用字号2，每行16像素高，可显示约10个字符
+    mDisplay->setTextSize(2);
     
-    // 第一行：搜索提示
+    // 第一行：Search STS
     mDisplay->setCursor(0, 0);
-    mDisplay->print("Search STS/SCS...");
+    mDisplay->print("SearchSTS");
     
-    // 第二行：搜索范围
+    // 第二行：ID:当前/最大
     mDisplay->setCursor(0, 16);
-    mDisplay->print("Max_ID ");
-    mDisplay->print(maxId);
-    mDisplay->print("-Ping 0-");
-    mDisplay->print(maxId);
-    
-    // 第三行：当前搜索进度
-    mDisplay->setCursor(0, 32);
-    mDisplay->print("Checking ID:");
+    mDisplay->print("ID:");
     mDisplay->print(currentId);
+    mDisplay->print("/");
+    mDisplay->print(maxId);
     
-    // 第四行：已发现数量
-    mDisplay->setCursor(0, 48);
-    mDisplay->print("Detected:");
+    // 第三行：Found数量
+    mDisplay->setCursor(0, 32);
+    mDisplay->print("Found:");
     mDisplay->print(detected);
     
     display();
@@ -192,16 +197,15 @@ void OLEDDisplay::showSearchComplete(int detected) {
     
     clear();
     
-    mDisplay->setTextSize(1);
+    mDisplay->setTextSize(2);
     
     // 居中显示完成信息
-    mDisplay->setCursor(20, 20);
-    mDisplay->print("Search Complete!");
+    mDisplay->setCursor(10, 8);
+    mDisplay->print("Done!");
     
-    mDisplay->setCursor(25, 40);
-    mDisplay->print("Found ");
+    mDisplay->setCursor(0, 32);
+    mDisplay->print("Found:");
     mDisplay->print(detected);
-    mDisplay->print(" servos");
     
     display();
 }
