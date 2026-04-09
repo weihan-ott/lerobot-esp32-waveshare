@@ -169,14 +169,20 @@ void OLEDDisplay::showSearching(int currentId, int maxId, int detected) {
     mDisplay->setTextSize(1);
     mDisplay->setTextColor(SSD1306_WHITE);
     
-    // 128x32 居中显示
-    mDisplay->setCursor(15, 0);
-    mDisplay->println("Search STS/SCS..");
+    // 128x32 屏幕，4行居中显示 (行高8像素)
+    // 第0行：标题
+    mDisplay->setCursor(20, 2);
+    mDisplay->println("Search STS/SCS");
     
-    mDisplay->setCursor(0, 8);
+    // 第1行：MAX_ID 和当前 Ping
+    mDisplay->setCursor(0, 10);
     mDisplay->print("MAX_ID "); mDisplay->print(maxId);
-    mDisplay->print(" P:"); mDisplay->print(currentId);
-    mDisplay->print(" D:"); mDisplay->println(detected);
+    mDisplay->print(" Ping:"); mDisplay->println(currentId);
+    
+    // 第2行：Detected（左对齐）
+    mDisplay->setCursor(0, 18);
+    mDisplay->print("Detected:");
+    mDisplay->print(detected);
     
     display();
 }
