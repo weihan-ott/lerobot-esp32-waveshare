@@ -24,9 +24,13 @@ ServoDriver::~ServoDriver() {
 }
 
 bool ServoDriver::begin() {
-    // 初始化舵机串口 (UART2) - 全双工模式，1Mbps
+    // 初始化舵机串口 (UART2) - 半双工模式，1Mbps
     servoSerial = &Serial2;
     servoSerial->begin(SERVO_BAUD_RATE, SERIAL_8N1, SERVO_RX_PIN, SERVO_TX_PIN);
+    
+    // 配置收发控制引脚
+    pinMode(SERVO_TXEN_PIN, OUTPUT);
+    rxEnable();
     
     // 等待串口稳定
     delay(100);
@@ -47,16 +51,19 @@ void ServoDriver::end() {
 }
 
 void ServoDriver::txEnable() {
-    // 全双工模式，不需要收发切换
+    digitalWrite(SERVO_TXEN_PIN, HIGH);
+    delayMicroseconds(10);
 }
 
 void ServoDriver::rxEnable() {
-    // 全双工模式，不需要收发切换
+    digitalWrite(SERVO_TXEN_PIN, LOW);
+    delayMicroseconds(10);
 }
 
 void ServoDriver::flush() {
     servoSerial->flush();
-    delayMicroseconds(50);  // 等待发送完成
+    delayMicroseconds(300);  // 等待发送完成
+    rxEnable();
 }
 
 uint8_t ServoDriver::calculateChecksum(uint8_t* data, uint8_t len) {
