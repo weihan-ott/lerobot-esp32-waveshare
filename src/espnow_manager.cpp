@@ -30,7 +30,7 @@ bool ESPNowManager::begin() {
     // 获取本机 MAC 地址
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
-    memcpy(ownMAC, WiFi.macAddress().c_str(), 6);
+    WiFi.macAddress(ownMAC);  // 正确获取 6 字节 MAC 地址
     
     DEBUG_PRINTF("ESP-NOW MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
                  ownMAC[0], ownMAC[1], ownMAC[2],
@@ -212,11 +212,13 @@ void ESPNowManager::onReceiveCallback(const uint8_t* mac, const uint8_t* data, i
     ServoDataPacket packet;
     memcpy(&packet, data, sizeof(ServoDataPacket));
     
-    // 验证 CRC
-    uint16_t calcCRC = instance->calculateCRC(data, len - 2);
-    if (calcCRC != packet.crc) {
-        DEBUG_PRINTF("CRC mismatch: calc=%04X, recv=%04X\n", calcCRC, packet.crc);
-        return;
+    // 验证 CRC（0xFFFF 表示跳过 CRC 验证）
+    if (packet.crc != 0xFFFF) {
+        uint16_t calcCRC = instance->calculateCRC(data, len - 2);
+        if (calcCRC != packet.crc) {
+            DEBUG_PRINTF("CRC mismatch: calc=%04X, recv=%04X\n", calcCRC, packet.crc);
+            return;
+        }
     }
     
     // 保存发送方 MAC

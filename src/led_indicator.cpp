@@ -104,18 +104,23 @@ void LEDIndicator::update() {
             
         default:
             // 静态显示，使用模式颜色
-            // 每 500ms 闪烁一次状态
-            if ((currentStatus == STATUS_DISCONNECTED || currentStatus == STATUS_PENDING) &&
+            // 等待/断开/待确认状态：每 500ms 慢闪烁
+            if ((currentStatus == STATUS_WAITING || 
+                 currentStatus == STATUS_DISCONNECTED || 
+                 currentStatus == STATUS_PENDING) &&
                 now - lastUpdateTime >= 500) {
                 lastUpdateTime = now;
                 blinkState = !blinkState;
                 
                 if (blinkState) {
-                    leds[0] = CRGB((currentStatus >> 16) & 0xFF, 
-                                   (currentStatus >> 8) & 0xFF, 
-                                   currentStatus & 0xFF);
+                    // 闪烁时显示状态颜色（橙色表示断开，蓝色表示等待）
+                    uint32_t blinkColor = (currentStatus == STATUS_DISCONNECTED) ? 
+                                          STATUS_DISCONNECTED : STATUS_WAITING;
+                    leds[0] = CRGB((blinkColor >> 16) & 0xFF, 
+                                   (blinkColor >> 8) & 0xFF, 
+                                   blinkColor & 0xFF);
                 } else {
-                    // 显示模式颜色
+                    // 显示模式颜色（主臂=蓝，从臂=绿）
                     uint32_t modeColor = MODE_COLORS[currentMode];
                     leds[0] = CRGB((modeColor >> 16) & 0xFF, 
                                    (modeColor >> 8) & 0xFF, 
@@ -163,27 +168,24 @@ void LEDIndicator::setMode(DeviceMode mode) {
 void LEDIndicator::setStatus(uint32_t statusColor) {
     currentStatus = statusColor;
     
-    // 根据状态设置显示
+    // 状态不再覆盖模式颜色，颜色由模式决定
+    // 状态通过闪烁方式表示（在 update() 中处理）
     switch (statusColor) {
         case STATUS_CONNECTED:
-            // 已连接：常亮绿色
-            setColor(0x00FF00);
+            // 已连接：常亮模式颜色
+            setColor(MODE_COLORS[currentMode]);
             break;
             
         case STATUS_WAITING:
-            // 等待中：蓝色常亮
-            setColor(0x0000FF);
+        case STATUS_DISCONNECTED:
+        case STATUS_PENDING:
+            // 等待/断开/待确认：触发慢闪烁动画
+            // 在 update() 中处理
             break;
             
         case STATUS_TAKEOVER:
-            // 被接管：紫色常亮
+            // 被接管：紫色常亮（覆盖模式颜色表示特殊状态）
             setColor(0x800080);
-            break;
-            
-        case STATUS_DISCONNECTED:
-        case STATUS_PENDING:
-            // 这些状态会触发闪烁动画
-            // 在 update() 中处理
             break;
             
         case STATUS_OVERLOAD:
@@ -197,7 +199,7 @@ void LEDIndicator::setStatus(uint32_t statusColor) {
             break;
     }
     
-    DEBUG_PRINTF("LED Status set: %06X\n", statusColor);
+    DEBUG_PRINTF("LED Status set: %06X, Mode color: %06X\n", statusColor, MODE_COLORS[currentMode]);
 }
 
 void LEDIndicator::blink(uint32_t color, int times, int duration) {

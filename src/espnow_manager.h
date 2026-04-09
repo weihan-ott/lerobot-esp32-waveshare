@@ -61,6 +61,9 @@ public:
     void setOnDataReceived(OnDataReceivedCallback callback);
     void setOnDataSent(OnDataSentCallback callback);
     
+    // 辅助函数 - CRC 计算
+    uint16_t calculateCRC(const uint8_t* data, int len);
+    
 private:
     bool initialized;
     bool gatewayMode;
@@ -86,7 +89,6 @@ private:
     static ESPNowManager* instance;
     
     // 辅助函数
-    uint16_t calculateCRC(const uint8_t* data, int len);
     void pushPacket(const ServoDataPacket& packet);
     bool popPacket(ServoDataPacket& packet);
     void handleScanning(const uint8_t* mac);

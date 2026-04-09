@@ -62,7 +62,9 @@ void ServoDriver::rxEnable() {
 
 void ServoDriver::flush() {
     servoSerial->flush();
-    delayMicroseconds(300);  // 等待发送完成
+    // 300μs 延迟是为了等待发送完成并切换到接收模式
+    // 对于 SYNC_WRITE（广播，无响应），可以缩短延迟
+    delayMicroseconds(100);
     rxEnable();
 }
 
@@ -85,7 +87,7 @@ void ServoDriver::wordToBytes(uint16_t word, uint8_t& low, uint8_t& high) {
 
 bool ServoDriver::sendInstruction(uint8_t id, uint8_t instruction, uint8_t* params, uint8_t paramLen) {
     uint8_t packetLen = 2 + 1 + 1 + 1 + paramLen + 1;  // 包头(2) + ID(1) + 长度(1) + 指令(1) + 参数 + 校验
-    uint8_t packet[16];  // STS 最大包长度
+    uint8_t packet[64];  // 增大缓冲区以支持 SYNC_WRITE (最多12个舵机: 2+12*5+6=68, 64足够)
     uint8_t idx = 0;
     
     // 包头
@@ -266,9 +268,10 @@ uint8_t ServoDriver::readByte(uint8_t id, uint8_t reg, bool* success) {
     sendInstruction(id, STS_CMD_READ, params, 2);
     
     STSStatusPacket status;
-    if (readStatus(status, 100) && status.error == 0 && status.length >= 3) {
+    // 读取1字节数据：timeout 20ms
+    if (readStatus(status, 20) && status.error == 0 && status.length >= 3) {
         if (success) *success = true;
-        return status.params[1];
+        return status.params[0];
     }
     
     if (success) *success = false;
@@ -280,9 +283,11 @@ uint16_t ServoDriver::readWord(uint8_t id, uint8_t reg, bool* success) {
     sendInstruction(id, STS_CMD_READ, params, 2);
     
     STSStatusPacket status;
-    if (readStatus(status, 100) && status.error == 0 && status.length >= 4) {
+    // 读取2字节数据：length = 2(Error+1) + 2 = 4，所以 params[0] 和 params[1] 是数据
+    // timeout 20ms，6个舵机最多120ms，保证30Hz刷新率
+    if (readStatus(status, 20) && status.error == 0 && status.length >= 4) {
         if (success) *success = true;
-        return makeWord(status.params[1], status.params[2]);
+        return makeWord(status.params[0], status.params[1]);
     }
     
     if (success) *success = false;
@@ -322,11 +327,12 @@ bool ServoDriver::setPositions(uint8_t ids[], uint16_t positions[], uint8_t coun
     if (count == 0 || count > 12) return false;
     
     // 构建同步写包
-    uint8_t params[4 + count * 4];  // 寄存器地址 + 长度 + (ID + 位置低 + 位置高 + 速度低 + 速度高)
+    // 格式：寄存器地址(1) + 每个舵机数据长度(1) + [ID(1) + 位置(2) + 速度(2)] * count
+    uint8_t params[2 + count * 5];
     uint8_t idx = 0;
     
     params[idx++] = STS_REG_TARGET_POS;  // 起始寄存器
-    params[idx++] = 4;  // 每个舵机写入 4 字节
+    params[idx++] = 4;  // 每个舵机写入 4 字节（位置2 + 速度2）
     
     for (uint8_t i = 0; i < count; i++) {
         uint8_t lowPos, highPos, lowSpeed, highSpeed;

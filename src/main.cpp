@@ -9,6 +9,7 @@
 #include "oled_display.h"
 #include "led_indicator.h"
 #include <Preferences.h>
+#include <esp_task_wdt.h>  // 看门狗喂狗
 
 // 全局对象
 ServoDriver servoDriver;
@@ -232,20 +233,47 @@ void modeFollower() {
     if (espNowManager.hasNewPacket()) {
         ServoDataPacket packet;
         if (espNowManager.getPacket(packet)) {
-            // 应用位置数据到舵机
+            // 喂狗防止复位（舵机通信可能耗时较长）
+            #ifdef ESP32
+            esp_task_wdt_reset();
+            #endif
+            
+            DEBUG_PRINTF("Follower: received %d servos\n", packet.servo_count);
+            
+            // 批量设置舵机位置（减少通信次数，避免看门狗复位）
+            uint8_t ids[12];
+            uint16_t positions[12];
+            uint8_t count = 0;
+            
             for (int i = 0; i < packet.servo_count && i < 12; i++) {
                 uint8_t id = (packet.servo_data[i] >> 12) & 0x0F;
                 uint16_t pos = packet.servo_data[i] & 0x0FFF;
-                servoDriver.setPosition(id, pos, 0);  // 立即执行
+                DEBUG_PRINTF("Follower: ID=%d, Pos=%d\n", id, pos);
+                
+                ids[count] = id;
+                positions[count] = pos;
+                count++;
+            }
+            
+            // 批量设置所有舵机位置（单次通信，避免阻塞过久）
+            // 速度 0 表示最大速度
+            if (count > 0) {
+                servoDriver.setPositions(ids, positions, count, 0);  // 最大速度
             }
             
             ledIndicator.setStatus(STATUS_CONNECTED);
             
-            // 发送反馈
-            syncPacket.packet_type = PACKET_TYPE_STATUS;
-            syncPacket.servo_count = servoDriver.getOnlineCount();
-            syncPacket.timestamp = millis();
-            espNowManager.sendFeedback(syncPacket);
+            // 喂狗
+            #ifdef ESP32
+            esp_task_wdt_reset();
+            #endif
+            
+            // 可选：发送反馈（注释掉以减少信道占用和延迟）
+            // syncPacket.packet_type = PACKET_TYPE_STATUS;
+            // syncPacket.servo_count = servoDriver.getOnlineCount();
+            // syncPacket.timestamp = millis();
+            // syncPacket.crc = 0xFFFF;
+            // espNowManager.sendFeedback(syncPacket);
         }
     }
     
@@ -266,17 +294,24 @@ void modeLeader() {
         syncPacket.packet_type = PACKET_TYPE_SYNC;
         syncPacket.servo_count = 0;
         syncPacket.timestamp = now;
+        memset(syncPacket.servo_data, 0, sizeof(syncPacket.servo_data));  // 清零数组避免垃圾数据影响CRC
         
         for (uint8_t id = 1; id <= MAX_SERVO_ID && syncPacket.servo_count < 12; id++) {
             if (servoDriver.isOnline(id)) {
                 uint16_t pos = servoDriver.getPosition(id);
                 syncPacket.servo_data[syncPacket.servo_count] = (id << 12) | (pos & 0x0FFF);
                 syncPacket.servo_count++;
+                DEBUG_PRINTF("Leader: ID=%d, Pos=%d\n", id, pos);
             }
         }
         
         // 发送数据（如果配对了特定设备，则发送到该设备，否则广播）
         if (syncPacket.servo_count > 0) {
+            // 计算并设置 CRC（重要！否则 Follower 会丢弃数据包）
+            // servo_data 已清零，可以安全计算整个结构体的 CRC
+            syncPacket.crc = espNowManager.calculateCRC(
+                (uint8_t*)&syncPacket, sizeof(ServoDataPacket) - 2);
+            
             if (pairedPeerMAC[0] != 0xFF && pairedPeerMAC[0] != 0x00) {
                 // 发送到配对的 Follower
                 espNowManager.send(pairedPeerMAC, syncPacket);
@@ -307,6 +342,7 @@ void modeMLeader() {
         syncPacket.packet_type = PACKET_TYPE_SYNC;
         syncPacket.servo_count = 0;
         syncPacket.timestamp = now;
+        memset(syncPacket.servo_data, 0, sizeof(syncPacket.servo_data));  // 清零数组
         
         for (uint8_t id = 1; id <= MAX_SERVO_ID && syncPacket.servo_count < 12; id++) {
             if (servoDriver.isOnline(id)) {
@@ -318,6 +354,7 @@ void modeMLeader() {
         
         // 广播给所有 Follower（M-Leader 模式始终广播）
         if (syncPacket.servo_count > 0) {
+            syncPacket.crc = 0xFFFF;  // CRC 验证跳过标记
             espNowManager.broadcast(syncPacket);
             ledIndicator.setStatus(STATUS_CONNECTED);
         }
@@ -470,6 +507,7 @@ void pairingPhase() {
             syncPacket.packet_type = PACKET_TYPE_SYNC;
             syncPacket.servo_count = 0;
             syncPacket.timestamp = millis();
+            memset(syncPacket.servo_data, 0, sizeof(syncPacket.servo_data));  // 清零数组
             
             for (uint8_t id = 1; id <= MAX_SERVO_ID && syncPacket.servo_count < 12; id++) {
                 if (servoDriver.isOnline(id)) {
@@ -481,6 +519,7 @@ void pairingPhase() {
             
             // 广播给所有设备（包括未配对的 Follower）
             if (syncPacket.servo_count > 0) {
+                syncPacket.crc = 0xFFFF;  // 配对阶段跳过CRC验证
                 espNowManager.broadcast(syncPacket);
                 DEBUG_PRINTLN("Leader broadcasting...");
             }
@@ -510,6 +549,9 @@ void pairingPhase() {
                     pairingCompleted = true;
                     inPairingMode = false;
                     currentPhase = PHASE_RUNNING;
+                    
+                    // 设置 LED 为已连接状态（常亮模式颜色）
+                    ledIndicator.setStatus(STATUS_CONNECTED);
                     
                     oledDisplay.showMessage("Follower connected!");
                     delay(1000);
@@ -580,11 +622,15 @@ void pairingPhase() {
                 ackPacket.packet_type = PACKET_TYPE_STATUS;
                 ackPacket.servo_count = servoDriver.getOnlineCount();
                 ackPacket.timestamp = millis();
+                ackPacket.crc = 0xFFFF;  // Leader 会跳过 CRC 验证
                 espNowManager.send(foundLeaderMac, ackPacket);
                 
                 pairingCompleted = true;
                 inPairingMode = false;
                 currentPhase = PHASE_RUNNING;
+                
+                // 设置 LED 为已连接状态（常亮模式颜色）
+                ledIndicator.setStatus(STATUS_CONNECTED);
                 
                 oledDisplay.showMessage("Paired!");
                 delay(1000);
