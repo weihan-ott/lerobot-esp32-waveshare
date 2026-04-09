@@ -171,14 +171,20 @@ void handleButton() {
             if (pressDuration >= BUTTON_LONG_PRESS_MS) {
                 // 长按 - 确认当前模式
                 modeSelected = true;
-                saveCurrentMode();
-                DEBUG_PRINTF("Mode confirmed: %d\n", currentMode);
+                DEBUG_PRINTF("Mode confirmed (long press)\n");
             } else if (pressDuration >= 50 && pressDuration < BUTTON_LONG_PRESS_MS) {
                 // 短按 - 切换到下一个模式
-                currentMode = (DeviceMode)((currentMode + 1) % NUM_MODES);
                 buttonShortPress = true;
-                DEBUG_PRINTF("Mode switched to: %d\n", currentMode);
+                DEBUG_PRINTF("Mode switch requested\n");
             }
+        } else if (currentPhase == PHASE_CONFIRM_MODE) {
+            // 确认上次模式阶段
+            if (pressDuration >= 50 && pressDuration < BUTTON_LONG_PRESS_MS) {
+                // 短按 - 进入模式选择
+                buttonShortPress = true;
+                DEBUG_PRINTF("User wants to change mode\n");
+            }
+            // 注意：此阶段超时自动确认，不需要长按处理
         } else if (currentPhase == PHASE_PAIRING) {
             // 配对阶段
             if (pressDuration >= 50 && pressDuration < BUTTON_LONG_PRESS_MS) {
@@ -361,6 +367,14 @@ void modeJoyCon() {
 void selectModePhase() {
     static DeviceMode tempMode = MODE_FOLLOWER;  // 临时模式选择
     static uint32_t lastDisplayTime = 0;
+    static bool phaseInitialized = false;
+    
+    // 初始化：从 currentMode 开始
+    if (!phaseInitialized) {
+        tempMode = currentMode;
+        phaseInitialized = true;
+        DEBUG_PRINTF("Mode selection started, current: %d\n", tempMode);
+    }
     
     // 显示当前可选模式（每秒刷新）
     if (millis() - lastDisplayTime > 200) {
@@ -376,21 +390,22 @@ void selectModePhase() {
         DEBUG_PRINTF("Mode selection: %d\n", tempMode);
     }
     
-    // 长按：确认模式选择
-    if (buttonPressTime > 0 && !buttonPressed && (millis() - buttonPressTime >= BUTTON_LONG_PRESS_MS)) {
-        // 注意：这里由 handleButton 处理长按，我们只需要检测模式确定
-    }
-    
     // 检测长按完成（通过 handleButton 设置的模式切换）
     if (modeSelected) {
-        tempMode = currentMode;  // 应用选择的模式
+        currentMode = tempMode;  // 应用选择的模式（修复：原来是反的）
+        saveCurrentMode();       // 保存到 EEPROM
+        modeSelected = false;    // 重置标志
+        phaseInitialized = false; // 重置阶段状态
+        
         DEBUG_PRINTF("Mode confirmed: %d\n", currentMode);
+        
+        // 显示确认信息
+        oledDisplay.showMode(currentMode);
+        delay(500);
         
         // 进入下一阶段
         currentPhase = PHASE_SEARCH_SERVO;
         ledIndicator.setMode(currentMode);
-        
-        delay(500);
     }
 }
 
