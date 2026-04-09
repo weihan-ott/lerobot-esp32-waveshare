@@ -128,38 +128,30 @@ void OLEDDisplay::showStatus(const char* mac, DeviceMode mode, int servoCount, c
     
     // 第一行：模式（大字显示）
     mDisplay->setTextSize(2);
-    mDisplay->setCursor(0, 0);
-    mDisplay->print(getModeName(mode));
+    const char* modeName = getModeName(mode);
+    int textWidth = strlen(modeName) * 12;  // 字号2每个字符约12像素
+    int x = (128 - textWidth) / 2;
+    if (x < 0) x = 0;
+    mDisplay->setCursor(x, 4);
+    mDisplay->print(modeName);
     
     // 分隔线
-    mDisplay->drawLine(0, 18, 128, 18, SSD1306_WHITE);
+    mDisplay->drawLine(10, 24, 118, 24, SSD1306_WHITE);
     
-    // 第二行：MAC + 舵机数量（合并显示）
+    // 第二行：舵机数量（大字显示）
+    mDisplay->setTextSize(2);
+    mDisplay->setCursor(20, 32);
+    mDisplay->print("S:");
+    mDisplay->print(servoCount);
+    
+    // 第三行：状态（中等字号，居中）
     mDisplay->setTextSize(1);
-    mDisplay->setCursor(0, 22);
-    // 显示 MAC 前 6 个字符
-    char macShort[7];
-    strncpy(macShort, mac, 6);
-    macShort[6] = '\0';
-    mDisplay->printf("%.6s S:%d/%d", macShort, servoCount, MAX_SERVO_ID);
-    
-    // 第三行：状态
-    mDisplay->setCursor(0, 32);
-    mDisplay->print("[");
+    mDisplay->setCursor(0, 54);
+    int statusWidth = strlen(status) * 6;
+    int statusX = (128 - statusWidth) / 2;
+    if (statusX < 0) statusX = 0;
+    mDisplay->setCursor(statusX, 54);
     mDisplay->print(status);
-    mDisplay->print("]");
-    
-    // 舵机位置条形图 (显示 4 个)
-    int y = 45;
-    for (int i = 1; i <= 4 && i <= MAX_SERVO_ID; i++) {
-        mDisplay->setCursor(0, y);
-        mDisplay->printf("%d:", i);
-        
-        // 绘制位置条
-        mDisplay->drawRect(16, y, 110, 6, SSD1306_WHITE);
-        
-        y += 12;
-    }
     
     display();
 }
