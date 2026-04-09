@@ -39,7 +39,7 @@ enum ServoType {
 // 默认舵机配置
 #define DEFAULT_SERVO_TYPE  SERVO_FEETECH_ST
 #define MAX_SERVO_ID        20    // 最大支持舵机 ID
-#define SERVO_BAUD_RATE     115200
+#define SERVO_BAUD_RATE     1000000  // 微雪官方使用 1Mbps
 
 // 舵机位置范围
 #define SERVO_POS_MIN       0

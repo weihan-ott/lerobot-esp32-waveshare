@@ -24,13 +24,9 @@ ServoDriver::~ServoDriver() {
 }
 
 bool ServoDriver::begin() {
-    // 初始化舵机串口 (UART2)
+    // 初始化舵机串口 (UART2) - 全双工模式，1Mbps
     servoSerial = &Serial2;
     servoSerial->begin(SERVO_BAUD_RATE, SERIAL_8N1, SERVO_RX_PIN, SERVO_TX_PIN);
-    
-    // 配置 TX 使能引脚
-    pinMode(SERVO_TXEN_PIN, OUTPUT);
-    rxEnable();
     
     // 等待串口稳定
     delay(100);
@@ -51,19 +47,16 @@ void ServoDriver::end() {
 }
 
 void ServoDriver::txEnable() {
-    digitalWrite(SERVO_TXEN_PIN, HIGH);
-    delayMicroseconds(10);  // 等待电平稳定
+    // 全双工模式，不需要收发切换
 }
 
 void ServoDriver::rxEnable() {
-    digitalWrite(SERVO_TXEN_PIN, LOW);
-    delayMicroseconds(10);
+    // 全双工模式，不需要收发切换
 }
 
 void ServoDriver::flush() {
     servoSerial->flush();
-    delayMicroseconds(200);  // 等待发送完成
-    rxEnable();
+    delayMicroseconds(50);  // 等待发送完成
 }
 
 uint8_t ServoDriver::calculateChecksum(uint8_t* data, uint8_t len) {
@@ -172,11 +165,18 @@ bool ServoDriver::readStatus(STSStatusPacket& status, uint32_t timeout) {
 }
 
 bool ServoDriver::ping(uint8_t id) {
+    // 清空接收缓冲区
+    while (servoSerial->available()) {
+        servoSerial->read();
+    }
+    
     sendInstruction(id, STS_CMD_PING, nullptr, 0);
     
     STSStatusPacket status;
-    if (readStatus(status, 100)) {
-        if (status.id == id && status.error == 0) {
+    // 增加超时时间到 200ms，兼容 STS3215
+    if (readStatus(status, 200)) {
+        // 只检查ID是否匹配，不检查error（有些舵机error不为0但也在线）
+        if (status.id == id) {
             servos[id].online = true;
             servos[id].lastUpdate = millis();
             return true;
@@ -229,7 +229,7 @@ int ServoDriver::scanServosWithCallback(uint8_t startId, uint8_t endId, ScanCall
             servos[id].currentPos = pos;
             servos[id].targetPos = pos;
         }
-        delay(5);  // 避免总线过载
+        delay(20);  // 增加延时，给舵机足够响应时间
     }
     
     DEBUG_PRINTF("Total servos found: %d\n", count);
