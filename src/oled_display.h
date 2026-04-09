@@ -7,6 +7,10 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+// 使用更清晰的字体
+#include <Fonts/FreeSans9pt7b.h>
+#include <Fonts/FreeSansBold9pt7b.h>
+
 class OLEDDisplay {
 public:
     OLEDDisplay();
