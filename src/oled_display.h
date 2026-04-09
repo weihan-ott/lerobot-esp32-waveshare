@@ -46,6 +46,7 @@ private:
     Adafruit_SSD1306* mDisplay;
     bool initialized;
     
+public:
     const char* getModeName(DeviceMode mode);
 };
 

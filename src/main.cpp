@@ -8,6 +8,7 @@
 #include "web_server.h"
 #include "oled_display.h"
 #include "led_indicator.h"
+#include <Preferences.h>
 
 // 全局对象
 ServoDriver servoDriver;
@@ -16,6 +17,7 @@ WiFiManager wifiManager;
 WebServerManager webServer;
 OLEDDisplay oledDisplay;
 LEDIndicator ledIndicator;
+Preferences prefs;  // EEPROM 存储
 
 // 当前工作模式
 volatile DeviceMode currentMode = MODE_FOLLOWER;
@@ -39,12 +41,13 @@ bool pairingCompleted = false;
 
 // 启动阶段枚举
 enum BootPhase {
-    PHASE_SELECT_MODE = 0,    // 选择模式
+    PHASE_CONFIRM_MODE = 0,   // 确认上次模式
+    PHASE_SELECT_MODE,        // 选择模式
     PHASE_SEARCH_SERVO,       // 搜索舵机
     PHASE_PAIRING,            // 配对（Leader/Follower）
     PHASE_RUNNING             // 正常运行
 };
-BootPhase currentPhase = PHASE_SELECT_MODE;
+BootPhase currentPhase = PHASE_CONFIRM_MODE;
 
 // 函数声明
 void setup();
@@ -58,6 +61,8 @@ void modeJoyCon();
 void switchMode();
 void loadSavedMode();
 void saveCurrentMode();
+bool checkSavedMode();       // 检查是否有保存的模式
+void confirmModePhase();     // 确认上次模式阶段
 void selectModePhase();      // 模式选择阶段
 void searchServoPhase();     // 搜索舵机阶段
 void pairingPhase();         // 配对阶段
@@ -70,6 +75,9 @@ void setup() {
     DEBUG_PRINTLN("LeRobot ESP32 for Waveshare");
     DEBUG_PRINTLN("Booting...");
     DEBUG_PRINTLN("================================\n");
+    
+    // 初始化 Preferences
+    prefs.begin("lerobot", false);
     
     // 初始化按钮
     pinMode(BOOT_BUTTON, INPUT_PULLUP);
@@ -102,7 +110,16 @@ void setup() {
     // 初始化 ESP-NOW
     espNowManager.begin();
     
-    DEBUG_PRINTLN("Setup complete. Entering mode selection...");
+    // 检查是否有保存的模式
+    if (checkSavedMode()) {
+        // 有保存的模式，询问是否使用
+        currentPhase = PHASE_CONFIRM_MODE;
+    } else {
+        // 没有保存的模式，进入选择
+        currentPhase = PHASE_SELECT_MODE;
+    }
+    
+    DEBUG_PRINTLN("Setup complete.");
 }
 
 void loop() {
@@ -114,6 +131,10 @@ void loop() {
     
     // 根据当前启动阶段执行不同逻辑
     switch (currentPhase) {
+        case PHASE_CONFIRM_MODE:
+            confirmModePhase();
+            break;
+            
         case PHASE_SELECT_MODE:
             selectModePhase();
             break;
@@ -581,14 +602,88 @@ void runNormalMode() {
 
 // ==================== EEPROM 操作 ====================
 void loadSavedMode() {
-    // 从 EEPROM 加载保存的模式
-    // 简化实现，实际应使用 Preferences 库
-    currentMode = MODE_FOLLOWER;  // 默认从动端
+    // 从 Preferences 加载保存的模式
+    currentMode = (DeviceMode)prefs.getInt("mode", MODE_FOLLOWER);
+    DEBUG_PRINTF("Loaded saved mode: %d\n", currentMode);
 }
 
 void saveCurrentMode() {
-    // 保存当前模式到 EEPROM
-    // 简化实现，实际应使用 Preferences 库
+    // 保存当前模式到 Preferences
+    prefs.putInt("mode", currentMode);
+    DEBUG_PRINTF("Saved mode: %d\n", currentMode);
+}
+
+bool checkSavedMode() {
+    // 检查是否有保存的模式
+    if (!prefs.isKey("mode")) {
+        DEBUG_PRINTLN("No saved mode found");
+        return false;
+    }
+    
+    // 读取保存的模式
+    int savedMode = prefs.getInt("mode", -1);
+    if (savedMode < 0 || savedMode >= NUM_MODES) {
+        DEBUG_PRINTLN("Invalid saved mode");
+        return false;
+    }
+    
+    currentMode = (DeviceMode)savedMode;
+    DEBUG_PRINTF("Found saved mode: %d\n", currentMode);
+    return true;
+}
+
+// ==================== 启动阶段处理 ====================
+
+void confirmModePhase() {
+    static uint32_t confirmStartTime = 0;
+    static bool displayShown = false;
+    
+    if (!displayShown) {
+        displayShown = true;
+        confirmStartTime = millis();
+        DEBUG_PRINTF("Confirm saved mode: %d\n", currentMode);
+    }
+    
+    // 显示上次模式和提示
+    static uint32_t lastDisplayTime = 0;
+    if (millis() - lastDisplayTime > 200) {
+        lastDisplayTime = millis();
+        
+        // 使用 OLED 显示确认界面
+        char line1[20], line2[20], line3[20];
+        sprintf(line1, "Last Mode:");
+        sprintf(line2, "%s", oledDisplay.getModeName(currentMode));
+        uint32_t elapsed = (millis() - confirmStartTime) / 1000;
+        uint32_t remaining = 3 > elapsed ? 3 - elapsed : 0;
+        sprintf(line3, "Short=Chg %d", remaining);
+        
+        oledDisplay.clear();
+        oledDisplay.drawText(10, 0, line1, 1);
+        oledDisplay.drawText(30, 10, line2, 1);
+        oledDisplay.drawText(0, 20, line3, 1);
+        oledDisplay.display();
+    }
+    
+    // 检查按钮
+    if (buttonShortPress) {
+        buttonShortPress = false;
+        // 短按进入模式选择
+        currentPhase = PHASE_SELECT_MODE;
+        displayShown = false;
+        DEBUG_PRINTLN("User chose to change mode");
+        return;
+    }
+    
+    // 3秒无操作，使用上次模式直接进入搜索
+    if (millis() - confirmStartTime > 3000) {
+        modeSelected = true;
+        currentPhase = PHASE_SEARCH_SERVO;
+        displayShown = false;
+        DEBUG_PRINTLN("Auto-confirm saved mode");
+        
+        oledDisplay.showMessage("Use saved mode");
+        delay(800);
+    }
 }
 
 // ==================== ESP-NOW 配对功能 ====================
