@@ -24,10 +24,17 @@ volatile DeviceMode lastMode = MODE_FOLLOWER;
 // 按钮状态
 unsigned long buttonPressTime = 0;
 bool buttonPressed = false;
+bool buttonShortPress = false;  // 短按标志
 
 // 同步数据
 ServoDataPacket syncPacket;
 uint32_t lastSyncTime = 0;
+
+// ESP-NOW 配对状态
+bool inPairingMode = false;
+int selectedPeerIndex = 0;
+uint8_t pairedPeerMAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+bool pairingCompleted = false;
 
 // 函数声明
 void setup();
@@ -41,6 +48,9 @@ void modeJoyCon();
 void switchMode();
 void loadSavedMode();
 void saveCurrentMode();
+void enterPairingMode();
+void selectPeerFromList();
+void enterFollowerMode();
 
 void setup() {
     // 初始化调试串口
@@ -113,11 +123,21 @@ void setup() {
     DEBUG_PRINTF("Current mode: %d\n", currentMode);
     DEBUG_PRINTLN("Initialization complete!");
     
-    oledDisplay.showMode(currentMode);
+    // 进入 ESP-NOW 配对模式
+    if (currentMode == MODE_LEADER || currentMode == MODE_M_LEADER) {
+        // Leader 模式：扫描 Follower
+        enterPairingMode();
+    } else if (currentMode == MODE_FOLLOWER) {
+        // Follower 模式：等待 Leader 连接
+        enterFollowerMode();
+    } else {
+        // 其他模式直接完成初始化
+        pairingCompleted = true;
+        oledDisplay.showMode(currentMode);
+    }
+    
     ledIndicator.setMode(currentMode);
     ledIndicator.setStatus(STATUS_WAITING);
-    
-    delay(1000);
 }
 
 void loop() {
@@ -126,6 +146,20 @@ void loop() {
     
     // 更新 LED
     ledIndicator.update();
+    
+    // 如果还在配对模式，先完成配对
+    if (inPairingMode) {
+        // 配对模式由各自的函数处理，这里只更新显示
+        if (currentMode == MODE_FOLLOWER) {
+            // Follower 显示闪烁等待提示
+            static uint32_t lastBlink = 0;
+            if (millis() - lastBlink > 800) {
+                lastBlink = millis();
+                oledDisplay.showWaitingForPeer();
+            }
+        }
+        return;  // 配对完成前不执行正常模式逻辑
+    }
     
     // 处理 Web 服务器
     webServer.handleClient();
@@ -157,9 +191,18 @@ void loop() {
         // 显示 MAC 地址和模式
         char macStr[18];
         espNowManager.getMACAddress(macStr);
+        
+        // 如果有配对的设备，显示配对设备的 MAC
+        char peerMacStr[18] = {0};
+        if (pairedPeerMAC[0] != 0xFF) {
+            sprintf(peerMacStr, "%02X%02X%02X", 
+                    pairedPeerMAC[3], pairedPeerMAC[4], pairedPeerMAC[5]);
+        }
+        
         oledDisplay.showStatus(macStr, currentMode, 
             servoDriver.getOnlineCount(), 
-            ledIndicator.getStatusText());
+            ledIndicator.getStatusText(),
+            peerMacStr[0] ? peerMacStr : nullptr);
     }
 }
 
@@ -179,6 +222,9 @@ void handleButton() {
         if (pressDuration >= BUTTON_LONG_PRESS_MS) {
             // 长按 - 切换模式
             switchMode();
+        } else if (pressDuration >= 50 && pressDuration < BUTTON_LONG_PRESS_MS) {
+            // 短按 - 设置标志
+            buttonShortPress = true;
         }
     }
 }
@@ -253,9 +299,15 @@ void modeLeader() {
             }
         }
         
-        // 发送数据
+        // 发送数据（如果配对了特定设备，则发送到该设备，否则广播）
         if (syncPacket.servo_count > 0) {
-            espNowManager.broadcast(syncPacket);
+            if (pairedPeerMAC[0] != 0xFF) {
+                // 发送到配对的设备
+                espNowManager.send(pairedPeerMAC, syncPacket);
+            } else {
+                // 广播模式
+                espNowManager.broadcast(syncPacket);
+            }
             ledIndicator.setStatus(STATUS_CONNECTED);
         } else {
             ledIndicator.setStatus(STATUS_DISCONNECTED);
@@ -289,7 +341,7 @@ void modeMLeader() {
             }
         }
         
-        // 广播给所有 Follower
+        // 广播给所有 Follower（M-Leader 模式始终广播）
         if (syncPacket.servo_count > 0) {
             espNowManager.broadcast(syncPacket);
             ledIndicator.setStatus(STATUS_CONNECTED);
@@ -344,4 +396,143 @@ void loadSavedMode() {
 void saveCurrentMode() {
     // 保存当前模式到 EEPROM
     // 简化实现，实际应使用 Preferences 库
+}
+
+// ==================== ESP-NOW 配对功能 ====================
+void enterPairingMode() {
+    inPairingMode = true;
+    pairingCompleted = false;
+    selectedPeerIndex = 0;
+    
+    // 开始扫描 ESP-NOW 设备
+    espNowManager.startScanningForPeers();
+    
+    DEBUG_PRINTLN("Entering pairing mode...");
+    oledDisplay.showMessage("Scanning peers...");
+    
+    // 等待发现设备（最多等待10秒）
+    unsigned long scanStart = millis();
+    while (millis() - scanStart < 10000) {
+        handleButton();
+        ledIndicator.update();
+        
+        // 检查是否发现设备
+        if (espNowManager.hasFoundPeers()) {
+            break;
+        }
+        
+        delay(100);
+    }
+    
+    // 如果有发现设备，进入选择流程
+    if (espNowManager.hasFoundPeers()) {
+        selectPeerFromList();
+    } else {
+        // 没有发现设备，使用广播模式
+        DEBUG_PRINTLN("No peers found, using broadcast mode");
+        oledDisplay.showMessage("No peers found\nBroadcast mode");
+        memset(pairedPeerMAC, 0xFF, 6);  // 广播地址
+        pairingCompleted = true;
+        inPairingMode = false;
+        delay(1500);
+    }
+}
+
+void selectPeerFromList() {
+    int totalPeers = espNowManager.getFoundPeerCount();
+    selectedPeerIndex = 0;
+    
+    DEBUG_PRINTF("Found %d peers, selecting...\n", totalPeers);
+    
+    // 显示发现的设备列表，等待用户选择
+    while (inPairingMode) {
+        handleButton();
+        ledIndicator.update();
+        
+        // 显示当前设备
+        uint8_t peerMac[6];
+        if (espNowManager.getFoundPeerMac(selectedPeerIndex, peerMac)) {
+            char macStr[18];
+            sprintf(macStr, "%02X:%02X:%02X", peerMac[3], peerMac[4], peerMac[5]);
+            oledDisplay.showPairingRequest(macStr, selectedPeerIndex, totalPeers);
+        }
+        
+        // 检查短按（确认选择）
+        if (buttonShortPress) {
+            buttonShortPress = false;
+            
+            // 确认选择当前设备
+            uint8_t selectedMac[6];
+            if (espNowManager.getFoundPeerMac(selectedPeerIndex, selectedMac)) {
+                memcpy(pairedPeerMAC, selectedMac, 6);
+                espNowManager.setTargetPeer(selectedMac);
+                pairingCompleted = true;
+                inPairingMode = false;
+                
+                char macStr[18];
+                sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X", 
+                        selectedMac[0], selectedMac[1], selectedMac[2],
+                        selectedMac[3], selectedMac[4], selectedMac[5]);
+                DEBUG_PRINTF("Paired with: %s\n", macStr);
+                
+                oledDisplay.showMessage("Paired!");
+                delay(1000);
+            }
+            break;
+        }
+        
+        delay(100);
+    }
+}
+
+void enterFollowerMode() {
+    // Follower 模式：显示自己的 MAC 地址，等待 Leader 连接
+    inPairingMode = true;
+    pairingCompleted = false;
+    
+    DEBUG_PRINTLN("Entering Follower mode, waiting for Leader...");
+    
+    // 显示等待提示（带闪烁效果）
+    unsigned long waitStart = millis();
+    while (millis() - waitStart < 5000) {  // 显示5秒等待提示
+        handleButton();
+        ledIndicator.update();
+        
+        // 闪烁显示等待提示
+        static bool blink = false;
+        static uint32_t lastBlink = 0;
+        if (millis() - lastBlink > 500) {
+            lastBlink = millis();
+            blink = !blink;
+            
+            if (blink) {
+                char macStr[18];
+                espNowManager.getMACAddress(macStr);
+                oledDisplay.showStatus(macStr, currentMode, 
+                    servoDriver.getOnlineCount(), "Wait", nullptr);
+            } else {
+                oledDisplay.showWaitingForPeer();
+            }
+        }
+        
+        // 检查是否收到 Leader 的数据
+        if (espNowManager.hasNewPacket()) {
+            // 收到数据，说明 Leader 已连接
+            pairingCompleted = true;
+            inPairingMode = false;
+            DEBUG_PRINTLN("Leader connected!");
+            oledDisplay.showMessage("Leader connected!");
+            delay(1000);
+            break;
+        }
+        
+        delay(50);
+    }
+    
+    // 5秒后自动退出配对模式，进入正常工作
+    if (!pairingCompleted) {
+        pairingCompleted = true;
+        inPairingMode = false;
+        DEBUG_PRINTLN("Auto exit pairing mode");
+    }
 }

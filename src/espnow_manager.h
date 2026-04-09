@@ -45,6 +45,18 @@ public:
     void getMACAddress(char* macStr);
     uint8_t* getOwnMAC() { return ownMAC; }
     
+    // ESP-NOW 设备扫描和配对
+    void startScanningForPeers();
+    void stopScanningForPeers();
+    bool isScanningForPeers();
+    bool hasFoundPeers();
+    int getFoundPeerCount();
+    bool getFoundPeerMac(int index, uint8_t* mac);
+    void clearFoundPeers();
+    bool setTargetPeer(const uint8_t* mac);
+    uint8_t* getTargetPeer() { return targetMAC; }
+    bool hasTargetPeer() { return targetMAC[0] != 0xFF; }
+    
     // 回调设置
     void setOnDataReceived(OnDataReceivedCallback callback);
     void setOnDataSent(OnDataSentCallback callback);
@@ -77,6 +89,7 @@ private:
     uint16_t calculateCRC(const uint8_t* data, int len);
     void pushPacket(const ServoDataPacket& packet);
     bool popPacket(ServoDataPacket& packet);
+    void handleScanning(const uint8_t* mac);
 };
 
 #endif // ESPNOW_MANAGER_H

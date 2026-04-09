@@ -201,6 +201,9 @@ bool ESPNowManager::popPacket(ServoDataPacket& packet) {
 void ESPNowManager::onReceiveCallback(const uint8_t* mac, const uint8_t* data, int len) {
     if (instance == nullptr) return;
     
+    // 处理扫描逻辑（无论包大小，只要收到数据就记录 MAC）
+    instance->handleScanning(mac);
+    
     if (len != sizeof(ServoDataPacket)) {
         DEBUG_PRINTF("Invalid packet size: %d\n", len);
         return;
@@ -252,4 +255,74 @@ void ESPNowManager::setOnDataReceived(OnDataReceivedCallback callback) {
 
 void ESPNowManager::setOnDataSent(OnDataSentCallback callback) {
     onDataSent = callback;
+}
+
+// ==================== ESP-NOW 设备扫描和配对 ====================
+
+static bool scanningForPeers = false;
+static uint8_t foundPeers[10][6];  // 最多存储10个发现的设备
+static int foundPeerCount = 0;
+static unsigned long lastScanTime = 0;
+
+void ESPNowManager::startScanningForPeers() {
+    scanningForPeers = true;
+    foundPeerCount = 0;
+    memset(foundPeers, 0, sizeof(foundPeers));
+    lastScanTime = millis();
+    DEBUG_PRINTLN("Started scanning for ESP-NOW peers...");
+}
+
+void ESPNowManager::stopScanningForPeers() {
+    scanningForPeers = false;
+    DEBUG_PRINTLN("Stopped scanning for ESP-NOW peers");
+}
+
+bool ESPNowManager::isScanningForPeers() {
+    return scanningForPeers;
+}
+
+bool ESPNowManager::hasFoundPeers() {
+    return foundPeerCount > 0;
+}
+
+int ESPNowManager::getFoundPeerCount() {
+    return foundPeerCount;
+}
+
+bool ESPNowManager::getFoundPeerMac(int index, uint8_t* mac) {
+    if (index < 0 || index >= foundPeerCount) {
+        return false;
+    }
+    memcpy(mac, foundPeers[index], 6);
+    return true;
+}
+
+void ESPNowManager::clearFoundPeers() {
+    foundPeerCount = 0;
+    memset(foundPeers, 0, sizeof(foundPeers));
+}
+
+bool ESPNowManager::setTargetPeer(const uint8_t* mac) {
+    memcpy(targetMAC, mac, 6);
+    return addPeer(mac);
+}
+
+// 在接收回调中处理扫描逻辑
+void ESPNowManager::handleScanning(const uint8_t* mac) {
+    if (!scanningForPeers) return;
+    
+    // 检查是否已存在
+    for (int i = 0; i < foundPeerCount; i++) {
+        if (memcmp(foundPeers[i], mac, 6) == 0) {
+            return;  // 已存在
+        }
+    }
+    
+    // 添加新设备
+    if (foundPeerCount < 10) {
+        memcpy(foundPeers[foundPeerCount], mac, 6);
+        foundPeerCount++;
+        DEBUG_PRINTF("Found new peer: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                     mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
 }

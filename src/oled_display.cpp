@@ -125,7 +125,7 @@ void OLEDDisplay::showMode(DeviceMode mode) {
     display();
 }
 
-void OLEDDisplay::showStatus(const char* mac, DeviceMode mode, int servoCount, const char* status) {
+void OLEDDisplay::showStatus(const char* mac, DeviceMode mode, int servoCount, const char* status, const char* peerMac) {
     if (!mDisplay) return;
     
     clear();
@@ -134,28 +134,107 @@ void OLEDDisplay::showStatus(const char* mac, DeviceMode mode, int servoCount, c
     mDisplay->setTextSize(1);
     mDisplay->setTextColor(SSD1306_WHITE);
     
-    // 128x32 屏幕，居中显示
-    // 第1行：模式
+    // 128x32 屏幕，4行详细显示
+    // 第1行：Mode: Leader
     mDisplay->setCursor(0, 0);
+    mDisplay->print("Mode:");
     mDisplay->print(getModeName(mode));
     
-    // 第2行：MAC
+    // 第2行：MAC: A4CF12
     mDisplay->setCursor(0, 8);
     mDisplay->print("MAC:");
     int macLen = strlen(mac);
-    if (macLen > 8) {
-        mDisplay->print(mac + macLen - 8);
+    if (macLen > 6) {
+        mDisplay->print(mac + macLen - 6);
     } else {
         mDisplay->print(mac);
     }
     
-    // 第3行：Servos 和 Status
+    // 第3行：Servos: 6/10
     mDisplay->setCursor(0, 16);
-    mDisplay->print("S:");
+    mDisplay->print("Servos:");
     mDisplay->print(servoCount);
     mDisplay->print("/10");
-    mDisplay->print(" ");
-    mDisplay->print(status);
+    
+    // 第4行：Peer 或 Status
+    mDisplay->setCursor(0, 24);
+    if (peerMac && strlen(peerMac) > 0) {
+        mDisplay->print("Peer:");
+        int peerLen = strlen(peerMac);
+        if (peerLen > 6) {
+            mDisplay->print(peerMac + peerLen - 6);
+        } else {
+            mDisplay->print(peerMac);
+        }
+    } else {
+        mDisplay->print("Stat:");
+        mDisplay->print(status);
+    }
+    
+    display();
+}
+
+void OLEDDisplay::showPairingRequest(const char* peerMac, int peerIndex, int totalPeers) {
+    if (!mDisplay) return;
+    
+    clear();
+    
+    mDisplay->setFont(nullptr);
+    mDisplay->setTextSize(1);
+    mDisplay->setTextColor(SSD1306_WHITE);
+    
+    // 第1行：标题
+    mDisplay->setCursor(10, 0);
+    mDisplay->print("Pairing Mode");
+    
+    // 第2行：发现设备数
+    mDisplay->setCursor(0, 8);
+    mDisplay->print("Found:");
+    mDisplay->print(totalPeers);
+    mDisplay->print(" devices");
+    
+    // 第3行：当前设备 MAC
+    mDisplay->setCursor(0, 16);
+    mDisplay->print("Dev");
+    mDisplay->print(peerIndex + 1);
+    mDisplay->print(":");
+    mDisplay->print(peerMac);
+    
+    // 第4行：提示
+    mDisplay->setCursor(0, 24);
+    mDisplay->print("Short=Yes Long=No");
+    
+    display();
+}
+
+void OLEDDisplay::showWaitingForPeer() {
+    if (!mDisplay) return;
+    
+    clear();
+    
+    mDisplay->setFont(nullptr);
+    mDisplay->setTextSize(1);
+    mDisplay->setTextColor(SSD1306_WHITE);
+    
+    // 第1行：标题
+    mDisplay->setCursor(15, 0);
+    mDisplay->print("Follower Mode");
+    
+    // 第2行：等待提示
+    mDisplay->setCursor(0, 8);
+    mDisplay->print("Waiting Leader...");
+    
+    // 第3行：本机 MAC 提示
+    mDisplay->setCursor(0, 16);
+    mDisplay->print("My MAC:");
+    
+    // 第4行：闪烁提示
+    static bool blink = false;
+    blink = !blink;
+    if (blink) {
+        mDisplay->setCursor(20, 24);
+        mDisplay->print("<< Listening >>");
+    }
     
     display();
 }

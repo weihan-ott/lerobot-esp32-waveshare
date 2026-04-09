@@ -21,11 +21,15 @@ public:
     void showMessage(const char* message);
     void showError(const char* error);
     void showMode(DeviceMode mode);
-    void showStatus(const char* mac, DeviceMode mode, int servoCount, const char* status);
+    void showStatus(const char* mac, DeviceMode mode, int servoCount, const char* status, const char* peerMac = nullptr);
     
     // 搜索舵机显示
     void showSearching(int currentId, int maxId, int detected);
     void showSearchComplete(int detected);
+    
+    // ESP-NOW 配对显示
+    void showPairingRequest(const char* peerMac, int peerIndex, int totalPeers);
+    void showWaitingForPeer();
     
     // 基本绘图
     void drawText(int x, int y, const char* text, int size = 1);
