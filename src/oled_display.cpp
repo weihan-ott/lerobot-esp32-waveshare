@@ -207,7 +207,7 @@ void OLEDDisplay::showPairingRequest(const char* peerMac, int peerIndex, int tot
     display();
 }
 
-void OLEDDisplay::showWaitingForPeer() {
+void OLEDDisplay::showWaitingForPeer(const char* myMac) {
     if (!mDisplay) return;
     
     clear();
@@ -224,15 +224,20 @@ void OLEDDisplay::showWaitingForPeer() {
     mDisplay->setCursor(0, 8);
     mDisplay->print("Waiting Leader...");
     
-    // 第3行：本机 MAC 提示
+    // 第3行：本机 MAC（显示后6位）
     mDisplay->setCursor(0, 16);
-    mDisplay->print("My MAC:");
+    mDisplay->print("MAC:");
+    if (myMac && strlen(myMac) >= 6) {
+        mDisplay->print(myMac + strlen(myMac) - 6);
+    } else {
+        mDisplay->print("Unknown");
+    }
     
     // 第4行：闪烁提示
     static bool blink = false;
     blink = !blink;
     if (blink) {
-        mDisplay->setCursor(20, 24);
+        mDisplay->setCursor(10, 24);
         mDisplay->print("<< Listening >>");
     }
     

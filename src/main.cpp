@@ -528,22 +528,40 @@ void pairingPhase() {
         }
         
     } else if (currentMode == MODE_FOLLOWER) {
-        // Follower 等待连接
+        // Follower 等待连接 - 定期广播自己的存在让 Leader 发现
         static uint32_t waitStartTime = 0;
+        static uint32_t lastAnnounce = 0;
         if (waitStartTime == 0) waitStartTime = millis();
+        
+        // 每 500ms 广播一次自己的存在
+        if (millis() - lastAnnounce > 500) {
+            lastAnnounce = millis();
+            
+            // 发送广播数据包（让 Leader 能发现我）
+            ServoDataPacket announcePacket;
+            announcePacket.packet_type = PACKET_TYPE_STATUS;  // 状态包类型
+            announcePacket.servo_count = servoDriver.getOnlineCount();
+            announcePacket.timestamp = millis();
+            announcePacket.crc = 0;  // 简化处理，实际应该计算
+            
+            // 广播到所有设备
+            espNowManager.broadcast(announcePacket);
+            DEBUG_PRINTLN("Follower announcing...");
+        }
         
         // 闪烁显示等待
         static uint32_t lastBlink = 0;
         static bool blinkState = false;
-        if (millis() - lastBlink > 500) {
+        if (millis() - lastBlink > 800) {
             lastBlink = millis();
             blinkState = !blinkState;
             
+            char macStr[18];
+            espNowManager.getMACAddress(macStr);
+            
             if (blinkState) {
-                oledDisplay.showWaitingForPeer();
+                oledDisplay.showWaitingForPeer(macStr);
             } else {
-                char macStr[18];
-                espNowManager.getMACAddress(macStr);
                 oledDisplay.showStatus(macStr, currentMode, 
                     servoDriver.getOnlineCount(), "Wait", nullptr);
             }

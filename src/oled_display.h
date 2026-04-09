@@ -29,7 +29,7 @@ public:
     
     // ESP-NOW 配对显示
     void showPairingRequest(const char* peerMac, int peerIndex, int totalPeers);
-    void showWaitingForPeer();
+    void showWaitingForPeer(const char* myMac);
     
     // 基本绘图
     void drawText(int x, int y, const char* text, int size = 1);
