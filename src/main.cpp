@@ -277,16 +277,15 @@ void modeLeader() {
         
         // 发送数据（如果配对了特定设备，则发送到该设备，否则广播）
         if (syncPacket.servo_count > 0) {
-            if (pairedPeerMAC[0] != 0xFF) {
-                // 发送到配对的设备
+            if (pairedPeerMAC[0] != 0xFF && pairedPeerMAC[0] != 0x00) {
+                // 发送到配对的 Follower
                 espNowManager.send(pairedPeerMAC, syncPacket);
+                ledIndicator.setStatus(STATUS_CONNECTED);
             } else {
-                // 广播模式
+                // 广播模式（配对前或广播模式）
                 espNowManager.broadcast(syncPacket);
+                ledIndicator.setStatus(STATUS_WAITING);
             }
-            ledIndicator.setStatus(STATUS_CONNECTED);
-        } else {
-            ledIndicator.setStatus(STATUS_DISCONNECTED);
         }
     }
     
@@ -460,156 +459,146 @@ void searchServoPhase() {
 
 void pairingPhase() {
     if (currentMode == MODE_LEADER || currentMode == MODE_M_LEADER) {
-        // Leader 配对流程
-        if (!espNowManager.isScanningForPeers()) {
-            // 开始扫描
-            espNowManager.startScanningForPeers();
-            oledDisplay.showMessage("Scanning peers...");
-            delay(500);
+        // Leader 模式：一直广播，等待 Follower 连接
+        static uint32_t lastBroadcast = 0;
+        
+        // 每 300ms 广播一次位置数据
+        if (millis() - lastBroadcast > 300) {
+            lastBroadcast = millis();
+            
+            // 读取当前舵机位置
+            syncPacket.packet_type = PACKET_TYPE_SYNC;
+            syncPacket.servo_count = 0;
+            syncPacket.timestamp = millis();
+            
+            for (uint8_t id = 1; id <= MAX_SERVO_ID && syncPacket.servo_count < 12; id++) {
+                if (servoDriver.isOnline(id)) {
+                    uint16_t pos = servoDriver.getPosition(id);
+                    syncPacket.servo_data[syncPacket.servo_count] = (id << 12) | (pos & 0x0FFF);
+                    syncPacket.servo_count++;
+                }
+            }
+            
+            // 广播给所有设备（包括未配对的 Follower）
+            if (syncPacket.servo_count > 0) {
+                espNowManager.broadcast(syncPacket);
+                DEBUG_PRINTLN("Leader broadcasting...");
+            }
         }
         
-        // 等待发现设备
-        if (espNowManager.hasFoundPeers()) {
-            // 显示发现的设备并选择
-            int totalPeers = espNowManager.getFoundPeerCount();
-            uint8_t peerMac[6];
+        // 显示等待配对提示
+        static uint32_t lastDisplay = 0;
+        if (millis() - lastDisplay > 800) {
+            lastDisplay = millis();
             
-            if (espNowManager.getFoundPeerMac(selectedPeerIndex, peerMac)) {
-                char macStr[18];
-                sprintf(macStr, "%02X:%02X:%02X", peerMac[3], peerMac[4], peerMac[5]);
-                oledDisplay.showPairingRequest(macStr, selectedPeerIndex, totalPeers);
-                
-                // 短按：确认当前设备
-                if (buttonShortPress) {
-                    buttonShortPress = false;
-                    memcpy(pairedPeerMAC, peerMac, 6);
-                    espNowManager.setTargetPeer(peerMac);
-                    espNowManager.stopScanningForPeers();
-                    
-                    // 发送配对确认包给 Follower
-                    ServoDataPacket pairConfirm;
-                    pairConfirm.packet_type = PACKET_TYPE_SYNC;
-                    pairConfirm.servo_count = servoDriver.getOnlineCount();
-                    pairConfirm.timestamp = millis();
-                    espNowManager.send(peerMac, pairConfirm);
-                    DEBUG_PRINTLN("Leader sent pair confirmation to Follower");
+            char macStr[18];
+            espNowManager.getMACAddress(macStr);
+            
+            oledDisplay.showStatus(macStr, currentMode, 
+                servoDriver.getOnlineCount(), "Broadcast", nullptr);
+        }
+        
+        // 检查是否有 Follower 响应（收到任何数据即认为配对成功）
+        if (espNowManager.hasNewPacket()) {
+            ServoDataPacket packet;
+            if (espNowManager.getPacket(packet)) {
+                uint8_t* followerMac = espNowManager.getTargetPeer();
+                if (followerMac && followerMac[0] != 0xFF) {
+                    memcpy(pairedPeerMAC, followerMac, 6);
+                    espNowManager.setTargetPeer(followerMac);
                     
                     pairingCompleted = true;
                     inPairingMode = false;
                     currentPhase = PHASE_RUNNING;
                     
-                    oledDisplay.showMessage("Paired!");
+                    oledDisplay.showMessage("Follower connected!");
                     delay(1000);
+                    DEBUG_PRINTF("Leader paired with Follower: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                                 followerMac[0], followerMac[1], followerMac[2],
+                                 followerMac[3], followerMac[4], followerMac[5]);
                     return;
                 }
-                
-                // 长按：切换到下一个设备
-                if (buttonShortPress) {  // 这里应该用另一个标志，简化处理
-                    // 实际由 handleButton 处理
-                }
             }
-        } else {
-            // 正在扫描中
+        }
+        
+    } else if (currentMode == MODE_FOLLOWER) {
+        // Follower 模式：扫描 Leader 并确认配对
+        static uint32_t scanStartTime = 0;
+        static bool leaderFound = false;
+        static uint8_t foundLeaderMac[6] = {0};
+        
+        if (scanStartTime == 0) {
+            scanStartTime = millis();
+            espNowManager.startScanningForPeers();
+            DEBUG_PRINTLN("Follower scanning for Leader...");
+        }
+        
+        // 如果没有发现 Leader，继续扫描
+        if (!leaderFound) {
+            // 显示扫描中
             static uint32_t lastScanDisplay = 0;
             if (millis() - lastScanDisplay > 500) {
                 lastScanDisplay = millis();
-                oledDisplay.showMessage("Scanning...");
+                oledDisplay.showMessage("Scanning Leader...");
             }
             
-            // 超时检查（10秒）
-            static uint32_t scanStartTime = 0;
-            if (scanStartTime == 0) scanStartTime = millis();
+            // 检查是否发现 Leader
+            if (espNowManager.hasFoundPeers()) {
+                // 获取第一个发现的设备（应该是 Leader）
+                uint8_t peerMac[6];
+                if (espNowManager.getFoundPeerMac(0, peerMac)) {
+                    memcpy(foundLeaderMac, peerMac, 6);
+                    leaderFound = true;
+                    DEBUG_PRINTF("Found Leader: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                                 peerMac[0], peerMac[1], peerMac[2],
+                                 peerMac[3], peerMac[4], peerMac[5]);
+                }
+            }
+        } else {
+            // 发现 Leader，提示用户确认
+            char macStr[18];
+            sprintf(macStr, "%02X:%02X:%02X", foundLeaderMac[3], foundLeaderMac[4], foundLeaderMac[5]);
             
-            if (millis() - scanStartTime > 10000) {
-                // 超时，使用广播模式
+            // 显示确认界面
+            oledDisplay.clear();
+            oledDisplay.drawText(10, 0, "Found Leader:", 1);
+            oledDisplay.drawText(30, 10, macStr, 1);
+            oledDisplay.drawText(0, 20, "Short=Yes Long=No", 1);
+            oledDisplay.display();
+            
+            // 等待用户确认
+            if (buttonShortPress) {
+                // 短按 = 确认配对
+                buttonShortPress = false;
+                
+                memcpy(pairedPeerMAC, foundLeaderMac, 6);
+                espNowManager.setTargetPeer(foundLeaderMac);
                 espNowManager.stopScanningForPeers();
-                memset(pairedPeerMAC, 0xFF, 6);
+                
+                // 发送确认包给 Leader
+                ServoDataPacket ackPacket;
+                ackPacket.packet_type = PACKET_TYPE_STATUS;
+                ackPacket.servo_count = servoDriver.getOnlineCount();
+                ackPacket.timestamp = millis();
+                espNowManager.send(foundLeaderMac, ackPacket);
                 
                 pairingCompleted = true;
                 inPairingMode = false;
                 currentPhase = PHASE_RUNNING;
                 
-                oledDisplay.showMessage("Broadcast mode");
+                oledDisplay.showMessage("Paired!");
                 delay(1000);
-                scanStartTime = 0;
+                DEBUG_PRINTLN("Follower confirmed pairing with Leader");
+                return;
+                
+            } else if (buttonPressed && (millis() - buttonPressTime >= BUTTON_LONG_PRESS_MS)) {
+                // 长按 = 拒绝，继续扫描其他
+                buttonPressed = false;  // 重置，避免重复触发
+                leaderFound = false;
+                espNowManager.clearFoundPeers();
+                DEBUG_PRINTLN("Follower rejected, continue scanning");
             }
         }
-        
-    } else if (currentMode == MODE_FOLLOWER) {
-        // Follower 等待连接 - 定期广播自己的存在让 Leader 发现
-        static uint32_t lastAnnounce = 0;
-        static bool leaderFound = false;
-        
-        // 每 500ms 广播一次自己的存在
-        if (millis() - lastAnnounce > 500) {
-            lastAnnounce = millis();
-            
-            // 发送广播数据包（让 Leader 能发现我）
-            ServoDataPacket announcePacket;
-            announcePacket.packet_type = PACKET_TYPE_STATUS;  // 状态包类型
-            announcePacket.servo_count = servoDriver.getOnlineCount();
-            announcePacket.timestamp = millis();
-            announcePacket.crc = 0;  // 简化处理
-            
-            // 广播到所有设备
-            espNowManager.broadcast(announcePacket);
-            DEBUG_PRINTLN("Follower announcing...");
-        }
-        
-        // 闪烁显示等待
-        static uint32_t lastBlink = 0;
-        static bool blinkState = false;
-        if (millis() - lastBlink > 800) {
-            lastBlink = millis();
-            blinkState = !blinkState;
-            
-            char macStr[18];
-            espNowManager.getMACAddress(macStr);
-            
-            if (blinkState) {
-                oledDisplay.showWaitingForPeer(macStr);
-            } else {
-                oledDisplay.showStatus(macStr, currentMode, 
-                    servoDriver.getOnlineCount(), "Wait", nullptr);
-            }
-        }
-        
-        // 检查是否收到 Leader 的数据（收到即表示配对成功）
-        if (espNowManager.hasNewPacket()) {
-            // 获取 Leader 的 MAC
-            ServoDataPacket packet;
-            if (espNowManager.getPacket(packet)) {
-                // 保存 Leader MAC 并确认配对
-                uint8_t* leaderMac = espNowManager.getTargetPeer();
-                if (leaderMac && leaderMac[0] != 0xFF) {
-                    memcpy(pairedPeerMAC, leaderMac, 6);
-                    
-                    // 添加 Leader 为对等点
-                    espNowManager.addPeer(leaderMac);
-                    
-                    // 发送确认响应给 Leader
-                    ServoDataPacket ackPacket;
-                    ackPacket.packet_type = PACKET_TYPE_STATUS;
-                    ackPacket.servo_count = servoDriver.getOnlineCount();
-                    ackPacket.timestamp = millis();
-                    espNowManager.send(leaderMac, ackPacket);  // 直接发送给 Leader
-                    
-                    pairingCompleted = true;
-                    inPairingMode = false;
-                    currentPhase = PHASE_RUNNING;
-                    
-                    oledDisplay.showMessage("Paired!");
-                    delay(1000);
-                    DEBUG_PRINTF("Follower paired with Leader: %02X:%02X:%02X:%02X:%02X:%02X\n",
-                                 leaderMac[0], leaderMac[1], leaderMac[2],
-                                 leaderMac[3], leaderMac[4], leaderMac[5]);
-                    return;
-                }
-            }
-        }
-        
-        // Follower 不超时，一直等待 Leader 连接
-        // （除非用户手动长按切换模式）
     }
 }
 
