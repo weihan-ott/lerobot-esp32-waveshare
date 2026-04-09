@@ -71,23 +71,32 @@ void setup() {
         while (1) delay(100);
     }
     
-    // 扫描舵机
+    // 扫描舵机 - 循环搜索直到找到至少1个舵机
     DEBUG_PRINTLN("Scanning servos...");
     ledIndicator.setSearching(true);  // 开始搜索，LED 闪烁蓝灯
     
-    // 使用回调函数扫描，实时更新显示
-    int servoCount = servoDriver.scanServosWithCallback(0, 10, [](int currentId, int maxId, int detected) {
-        oledDisplay.showSearching(currentId, maxId, detected);
-        ledIndicator.update();  // 更新 LED 闪烁
-        delay(10);
-    });
+    int servoCount = 0;
+    while (servoCount == 0) {
+        // 使用回调函数扫描，实时更新显示
+        servoCount = servoDriver.scanServosWithCallback(0, 10, [](int currentId, int maxId, int detected) {
+            oledDisplay.showSearching(currentId, maxId, detected);
+            ledIndicator.update();  // 更新 LED 闪烁
+            delay(10);
+        });
+        
+        DEBUG_PRINTF("Found %d servos\n", servoCount);
+        
+        if (servoCount == 0) {
+            DEBUG_PRINTLN("No servos found, retrying...");
+            delay(500);  // 等待500ms后重新搜索
+        }
+    }
     
     ledIndicator.setSearching(false);  // 搜索结束，停止闪烁
-    DEBUG_PRINTF("Found %d servos\n", servoCount);
     
     // 显示搜索完成
     oledDisplay.showSearchComplete(servoCount);
-    delay(1000);
+    delay(1500);
     
     // 初始化 WiFi
     wifiManager.begin();

@@ -56,10 +56,13 @@ void OLEDDisplay::showStartup() {
     mDisplay->setFont(nullptr);
     mDisplay->setTextSize(1);
     mDisplay->setTextColor(SSD1306_WHITE);
-    mDisplay->setCursor(0, 0);
-
+    
+    // 128x32 居中显示 (4行，从第0行开始)
+    mDisplay->setCursor(20, 0);
     mDisplay->println("LeRobot ESP32");
+    mDisplay->setCursor(30, 8);
     mDisplay->println("Waveshare");
+    mDisplay->setCursor(25, 16);
     mDisplay->println("Starting...");
 
     display();
@@ -100,10 +103,24 @@ void OLEDDisplay::showMode(DeviceMode mode) {
     mDisplay->setFont(nullptr);
     mDisplay->setTextSize(1);
     mDisplay->setTextColor(SSD1306_WHITE);
-    mDisplay->setCursor(0, 0);
-
-    mDisplay->println("MODE");
-    mDisplay->println(getModeName(mode));
+    
+    // 绘制边框
+    mDisplay->drawRect(0, 0, 128, 32, SSD1306_WHITE);
+    
+    // 标题栏背景
+    mDisplay->fillRect(1, 1, 126, 10, SSD1306_WHITE);
+    mDisplay->setTextColor(SSD1306_BLACK);
+    mDisplay->setCursor(50, 2);
+    mDisplay->print("MODE");
+    
+    // 模式名称
+    mDisplay->setTextColor(SSD1306_WHITE);
+    const char* modeName = getModeName(mode);
+    int nameLen = strlen(modeName);
+    int x = (128 - nameLen * 6) / 2;  // 水平居中
+    if (x < 2) x = 2;
+    mDisplay->setCursor(x, 18);
+    mDisplay->print(modeName);
     
     display();
 }
@@ -116,28 +133,29 @@ void OLEDDisplay::showStatus(const char* mac, DeviceMode mode, int servoCount, c
     mDisplay->setFont(nullptr);
     mDisplay->setTextSize(1);
     mDisplay->setTextColor(SSD1306_WHITE);
+    
+    // 128x32 屏幕，居中显示
+    // 第1行：模式
     mDisplay->setCursor(0, 0);
+    mDisplay->print(getModeName(mode));
     
-    // 128x32 屏幕，4行显示
-    // 第1行：Mode
-    mDisplay->print("Mode:");
-    mDisplay->println(getModeName(mode));
-    
-    // 第2行：MAC + Servos
+    // 第2行：MAC
+    mDisplay->setCursor(0, 8);
     mDisplay->print("MAC:");
-    // 只显示MAC后6位
     int macLen = strlen(mac);
-    if (macLen > 6) {
-        mDisplay->print(mac + macLen - 6);
+    if (macLen > 8) {
+        mDisplay->print(mac + macLen - 8);
     } else {
         mDisplay->print(mac);
     }
-    mDisplay->print(" S:");
-    mDisplay->println(servoCount);
     
-    // 第3行：Status
-    mDisplay->print("Stat:");
-    mDisplay->println(status);
+    // 第3行：Servos 和 Status
+    mDisplay->setCursor(0, 16);
+    mDisplay->print("S:");
+    mDisplay->print(servoCount);
+    mDisplay->print("/10");
+    mDisplay->print(" ");
+    mDisplay->print(status);
     
     display();
 }
@@ -150,13 +168,15 @@ void OLEDDisplay::showSearching(int currentId, int maxId, int detected) {
     mDisplay->setFont(nullptr);
     mDisplay->setTextSize(1);
     mDisplay->setTextColor(SSD1306_WHITE);
-    mDisplay->setCursor(0, 0);
     
-    // 128x32 屏幕，4行，每行8像素
-    mDisplay->println("Searching Servos..");
+    // 128x32 居中显示
+    mDisplay->setCursor(15, 0);
+    mDisplay->println("Search STS/SCS..");
+    
+    mDisplay->setCursor(0, 8);
     mDisplay->print("MAX_ID "); mDisplay->print(maxId);
-    mDisplay->print("-Ping:"); mDisplay->println(currentId);
-    mDisplay->print("Detected:"); mDisplay->print(detected);
+    mDisplay->print(" P:"); mDisplay->print(currentId);
+    mDisplay->print(" D:"); mDisplay->println(detected);
     
     display();
 }
@@ -169,12 +189,14 @@ void OLEDDisplay::showSearchComplete(int detected) {
     mDisplay->setFont(nullptr);
     mDisplay->setTextSize(1);
     mDisplay->setTextColor(SSD1306_WHITE);
-    mDisplay->setCursor(0, 0);
     
+    // 居中显示
+    mDisplay->setCursor(25, 4);
     mDisplay->println("Search Done!");
+    mDisplay->setCursor(20, 14);
     mDisplay->print("Found ");
     mDisplay->print(detected);
-    mDisplay->println(" servos");
+    mDisplay->print(" servos");
     
     display();
 }
